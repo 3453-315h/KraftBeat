@@ -1,0 +1,59 @@
+# Kraftbeat .gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+venv312/
+env/
+.venv/
+
+# Project non-code folders
+outputs/
+tests/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Generated audio files
+*.wav
+*.mp3
+*.flac
+*.ogg
+
+# Ad-hoc test/debug scripts in repo root
+/test_*.py
+/check_*.py
+/debug_*.py
+/reproduce_crash.py
+
+# Logs
+*.log
+
+# Model cache
+models/
+pretrained/
+
+# Strudel assets
+strudel_samples/
+strudel_dist/
+strudel_src/
+
+# Torch/HF cache
+*.bin
+*.safetensors

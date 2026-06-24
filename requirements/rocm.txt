@@ -1,0 +1,35 @@
+# ROCm PyTorch Requirements for AMD GPUs (Windows & Linux)
+# 
+# Prerequisites:
+# - Windows 11 OR Linux with ROCm 6.4+
+# - AMD RX 7000/9000 series GPU OR Ryzen AI 300/AI Max APU
+# - AMD PyTorch Preview Driver (Windows)
+#
+# Installation:
+# 1. Uninstall existing AMD drivers
+# 2. Install AMD Software: PyTorch on Windows Preview Edition
+# 3. pip install -r requirements/rocm.txt
+#
+# More info: https://rocm.docs.amd.com/
+
+# PyTorch with ROCm support (from AMD's repository)
+--extra-index-url https://download.pytorch.org/whl/rocm6.2
+torch>=2.5.0
+torchvision>=0.20.0
+torchaudio>=2.5.0
+
+# Core dependencies
+transformers>=4.40.0
+huggingface-hub>=0.20.0
+
+# Audio processing
+soundfile>=0.12.0
+scipy>=1.10.0
+numpy>=1.24.0
+
+# UI
+PyQt6>=6.5.0
+
+# Optional: Flash Attention for ROCm (requires building from source)
+# See: https://github.com/ROCm/flash-attention
+# pip install flash-attn --no-build-isolation

@@ -1,0 +1,4 @@
+# CPU backend (fallback)
+-r base.txt
+torch
+torchaudio

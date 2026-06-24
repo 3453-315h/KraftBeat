@@ -1,0 +1,127 @@
+{
+  "version": "2.0",
+  "description": "Phase modifiers with sub-prompts for multi-chunk phases. Each phase has a base prompt and sub-prompts for evolution within the phase.",
+  "phases": {
+    "intro": {
+      "base": "atmospheric intro, establishing theme",
+      "sub_prompts": [
+        "first notes emerging, sparse, space",
+        "layers beginning to build, subtle texture",
+        "atmosphere growing, momentum starting",
+        "building anticipation, transition approaching"
+      ]
+    },
+    "verse_early": {
+      "base": "verse section, steady rhythm, storytelling",
+      "sub_prompts": [
+        "melody introduced, foundation laid",
+        "groove establishing, narrative beginning",
+        "rhythm locked in, flow developing"
+      ]
+    },
+    "verse_late": {
+      "base": "verse development, adding texture",
+      "sub_prompts": [
+        "layers thickening, momentum building",
+        "complexity increasing, energy rising",
+        "approaching pre-chorus, tension building"
+      ]
+    },
+    "pre_chorus": {
+      "base": "pre-chorus tension, rising energy",
+      "sub_prompts": [
+        "anticipation building, drums intensifying",
+        "energy climbing, almost there",
+        "peak tension, about to drop"
+      ]
+    },
+    "chorus": {
+      "base": "chorus hook, high energy, catchy melody",
+      "sub_prompts": [
+        "hook landing, full energy, memorable",
+        "chorus in full swing, maximum catchiness",
+        "hook repeating, solidifying theme"
+      ]
+    },
+    "chorus_peak": {
+      "base": "chorus peak, maximum hooks, triumphant",
+      "sub_prompts": [
+        "absolute peak energy, euphoric",
+        "maximum intensity, climactic",
+        "sustaining peak, powerful"
+      ]
+    },
+    "bridge": {
+      "base": "bridge breakdown, dramatic shift, golden moment",
+      "sub_prompts": [
+        "breaking down, stripping back, tension",
+        "new elements, contrast, surprise",
+        "rebuilding, energy returning",
+        "golden ratio moment, pivotal"
+      ]
+    },
+    "climax": {
+      "base": "final chorus, climax, powerful crescendo",
+      "sub_prompts": [
+        "triumphant return, maximum power",
+        "everything together, ultimate energy",
+        "celebrating, victorious, euphoric"
+      ]
+    },
+    "outro_early": {
+      "base": "outro beginning, softening energy",
+      "sub_prompts": [
+        "energy fading, winding down",
+        "layers removing, peaceful transition",
+        "reflecting, calming"
+      ]
+    },
+    "outro_fade": {
+      "base": "fade out, peaceful resolution, final notes",
+      "sub_prompts": [
+        "gentle fade, last echoes",
+        "final whispers, approaching silence",
+        "resolution, peaceful ending"
+      ]
+    }
+  },
+  "presets": {
+    "default": "Standard pop/rock structure with sub-prompts",
+    "edm": {
+      "intro": {
+        "base": "ambient intro, atmospheric pads",
+        "sub_prompts": [
+          "distant sounds",
+          "layers emerging",
+          "beat teasing",
+          "build starting"
+        ]
+      },
+      "verse_early": {
+        "base": "minimal beat, building layers",
+        "sub_prompts": [
+          "kick introduced",
+          "hi-hats adding",
+          "bass emerging"
+        ]
+      },
+      "chorus": {
+        "base": "drop, heavy bass, full energy",
+        "sub_prompts": [
+          "drop hits hard",
+          "bass shaking",
+          "synths screaming"
+        ]
+      },
+      "bridge": {
+        "base": "breakdown, stripped back, emotional",
+        "sub_prompts": [
+          "silence",
+          "vocal chop",
+          "riser building",
+          "about to drop"
+        ]
+      }
+    }
+  }
+}

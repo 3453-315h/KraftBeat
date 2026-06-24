@@ -1,0 +1,154 @@
+{
+    "version": "2.0",
+    "description": "21-Phase structure for Coherent mode (8s chunks). Maximum control and granularity.",
+    "phase_count": 21,
+    "phases": {
+        "intro_soft": {
+            "base": "soft intro, first sounds emerging",
+            "sub_prompts": [
+                "silence breaking",
+                "distant sounds"
+            ]
+        },
+        "intro_build": {
+            "base": "intro building, layers adding",
+            "sub_prompts": [
+                "atmosphere growing",
+                "anticipation"
+            ]
+        },
+        "intro_peak": {
+            "base": "intro peak, ready to transition",
+            "sub_prompts": [
+                "full intro sound",
+                "about to begin"
+            ]
+        },
+        "verse_1_start": {
+            "base": "first verse beginning, rhythm establishing",
+            "sub_prompts": [
+                "groove locked in",
+                "story starting"
+            ]
+        },
+        "verse_1_develop": {
+            "base": "first verse developing, adding texture",
+            "sub_prompts": [
+                "layers thickening",
+                "narrative building"
+            ]
+        },
+        "pre_chorus_1": {
+            "base": "pre-chorus tension, energy rising",
+            "sub_prompts": [
+                "drums intensifying",
+                "anticipation peak"
+            ]
+        },
+        "chorus_1_hit": {
+            "base": "first chorus landing, hook revealed",
+            "sub_prompts": [
+                "catchy melody",
+                "high energy"
+            ]
+        },
+        "chorus_1_sustain": {
+            "base": "chorus sustaining, full arrangement",
+            "sub_prompts": [
+                "maximum catchiness",
+                "memorable"
+            ]
+        },
+        "verse_2_start": {
+            "base": "second verse, new perspective",
+            "sub_prompts": [
+                "fresh lyrics feel",
+                "familiar groove"
+            ]
+        },
+        "verse_2_develop": {
+            "base": "second verse building",
+            "sub_prompts": [
+                "complexity increasing",
+                "momentum"
+            ]
+        },
+        "pre_chorus_2": {
+            "base": "second pre-chorus",
+            "sub_prompts": [
+                "familiar tension",
+                "audience ready"
+            ]
+        },
+        "chorus_2": {
+            "base": "second chorus, bigger energy",
+            "sub_prompts": [
+                "fuller sound",
+                "everyone knows the hook"
+            ]
+        },
+        "bridge_breakdown": {
+            "base": "bridge breakdown, stripping back",
+            "sub_prompts": [
+                "tension",
+                "contrast"
+            ]
+        },
+        "bridge_golden": {
+            "base": "golden moment, pivotal point",
+            "sub_prompts": [
+                "dramatic shift",
+                "emotional peak"
+            ]
+        },
+        "bridge_rebuild": {
+            "base": "bridge rebuilding, energy returning",
+            "sub_prompts": [
+                "layers coming back",
+                "rising"
+            ]
+        },
+        "solo": {
+            "base": "instrumental solo section",
+            "sub_prompts": [
+                "expressive",
+                "virtuosic"
+            ]
+        },
+        "chorus_final_hit": {
+            "base": "final chorus landing, biggest yet",
+            "sub_prompts": [
+                "triumphant",
+                "maximum power"
+            ]
+        },
+        "chorus_final_sustain": {
+            "base": "final chorus sustaining, celebrating",
+            "sub_prompts": [
+                "victory",
+                "euphoric"
+            ]
+        },
+        "outro_transition": {
+            "base": "transitioning to outro",
+            "sub_prompts": [
+                "energy beginning to fade",
+                "satisfaction"
+            ]
+        },
+        "outro_soft": {
+            "base": "outro softening, winding down",
+            "sub_prompts": [
+                "peaceful",
+                "reflecting"
+            ]
+        },
+        "fade": {
+            "base": "fade out, final notes",
+            "sub_prompts": [
+                "silence approaching",
+                "resolution"
+            ]
+        }
+    }
+}

@@ -1,0 +1,100 @@
+{
+    "version": "2.0",
+    "description": "13-Phase structure for Balanced mode (13s chunks). Fibonacci-aligned phase count.",
+    "phase_count": 13,
+    "phases": {
+        "intro": {
+            "base": "atmospheric intro, establishing theme",
+            "sub_prompts": [
+                "first notes",
+                "layers building",
+                "atmosphere growing"
+            ]
+        },
+        "verse_1": {
+            "base": "first verse, steady rhythm, storytelling",
+            "sub_prompts": [
+                "melody introduced",
+                "groove establishing"
+            ]
+        },
+        "pre_chorus_1": {
+            "base": "pre-chorus, tension building",
+            "sub_prompts": [
+                "energy rising",
+                "anticipation"
+            ]
+        },
+        "chorus_1": {
+            "base": "first chorus, hook landing, high energy",
+            "sub_prompts": [
+                "catchy melody",
+                "memorable hook"
+            ]
+        },
+        "verse_2": {
+            "base": "second verse, developing theme",
+            "sub_prompts": [
+                "new lyrics feel",
+                "building on first verse"
+            ]
+        },
+        "pre_chorus_2": {
+            "base": "second pre-chorus, familiar tension",
+            "sub_prompts": [
+                "rising again",
+                "audience knows what's coming"
+            ]
+        },
+        "chorus_2": {
+            "base": "second chorus, full energy, reinforcing hook",
+            "sub_prompts": [
+                "peak energy",
+                "everyone singing along"
+            ]
+        },
+        "bridge": {
+            "base": "bridge, golden moment, dramatic shift",
+            "sub_prompts": [
+                "breakdown",
+                "new perspective",
+                "tension release"
+            ]
+        },
+        "solo": {
+            "base": "instrumental solo or breakdown section",
+            "sub_prompts": [
+                "expressive moment",
+                "virtuoso"
+            ]
+        },
+        "chorus_3": {
+            "base": "final chorus, maximum energy, triumphant",
+            "sub_prompts": [
+                "biggest hooks",
+                "euphoric"
+            ]
+        },
+        "chorus_extended": {
+            "base": "extended chorus, celebrating",
+            "sub_prompts": [
+                "victory lap",
+                "sustaining peak"
+            ]
+        },
+        "outro": {
+            "base": "outro beginning, softening",
+            "sub_prompts": [
+                "winding down",
+                "reflecting"
+            ]
+        },
+        "fade": {
+            "base": "fade out, peaceful resolution",
+            "sub_prompts": [
+                "final whispers",
+                "silence"
+            ]
+        }
+    }
+}

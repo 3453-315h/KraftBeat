@@ -1,0 +1,65 @@
+{
+    "version": "2.0",
+    "description": "8-Phase structure for Speed mode (21s chunks). Minimal phases for fast generation.",
+    "phase_count": 8,
+    "phases": {
+        "intro": {
+            "base": "atmospheric intro, establishing theme",
+            "sub_prompts": [
+                "first notes emerging",
+                "building atmosphere"
+            ]
+        },
+        "verse": {
+            "base": "verse section, steady rhythm, melodic",
+            "sub_prompts": [
+                "groove establishing",
+                "developing narrative"
+            ]
+        },
+        "pre_chorus": {
+            "base": "pre-chorus, building tension, rising energy",
+            "sub_prompts": [
+                "anticipation building",
+                "almost there"
+            ]
+        },
+        "chorus": {
+            "base": "chorus hook, high energy, catchy melody",
+            "sub_prompts": [
+                "hook landing",
+                "full energy",
+                "memorable"
+            ]
+        },
+        "bridge": {
+            "base": "bridge breakdown, dramatic shift, golden moment",
+            "sub_prompts": [
+                "breaking down",
+                "new elements",
+                "rebuilding"
+            ]
+        },
+        "chorus_final": {
+            "base": "final chorus, maximum energy, triumphant",
+            "sub_prompts": [
+                "peak energy",
+                "celebrating"
+            ]
+        },
+        "outro": {
+            "base": "outro, softening energy, resolution",
+            "sub_prompts": [
+                "winding down",
+                "peaceful"
+            ]
+        },
+        "fade": {
+            "base": "fade out, final notes, gentle ending",
+            "sub_prompts": [
+                "last echoes",
+                "silence approaching"
+            ]
+        }
+    }
+}

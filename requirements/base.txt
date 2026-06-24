@@ -1,0 +1,24 @@
+# Base requirements (all backends)
+transformers>=4.36.0
+accelerate>=0.26.0
+diffusers>=0.25.0
+peft>=0.7.0
+bitsandbytes>=0.43.0
+audiocraft
+av==12.0.0
+
+soundfile
+numpy
+scipy
+PyQt6
+PyQt6-WebEngine
+sounddevice
+pyqtgraph
+demucs
+psutil
+huggingface_hub
+pillow
+git+https://github.com/ace-step/ACE-Step.git
+basic-pitch
+fastapi
+uvicorn[standard]

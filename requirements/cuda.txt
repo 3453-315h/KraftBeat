@@ -1,0 +1,5 @@
+# CUDA backend (NVIDIA)
+-r base.txt
+--index-url https://download.pytorch.org/whl/cu121
+torch
+torchaudio
