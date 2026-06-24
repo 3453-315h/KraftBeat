@@ -46,8 +46,8 @@ Thumbs.db
 *.log
 
 # Model cache
-models/
-pretrained/
+/models/
+/pretrained/
 
 # Strudel assets
 strudel_samples/
