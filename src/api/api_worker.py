@@ -8,7 +8,7 @@ so the PyQt6 UI remains fully responsive while the API is served.
 import logging
 from PyQt6.QtCore import QThread, pyqtSignal
 
-from utils.config import get_config
+from src.utils.config import get_config
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ class APIWorker(QThread):
         try:
             import uvicorn
             import asyncio
-            from api.server import create_app
+            from src.api.server import create_app
 
             app = create_app()
             if app is None:

@@ -77,7 +77,6 @@ DEFAULT_SETTINGS = {
     # Network config
     'api_host': '127.0.0.1',
     'api_port': 8765,
-    'strudel_host': '127.0.0.1',
     
     # Audio/Generation parameters (from issue 5)
     'chunk_duration_coherent': 8.0,
@@ -103,6 +102,15 @@ DEFAULT_SETTINGS = {
     'max_crossfade_ms': 5000,
     'waveform_point_limit': 5000,
     'note_display_timing_ms': 3000,
+
+    # Audio-to-MIDI Transcription
+    'transcription_engine': 'basic-pitch',
+    'muscriptor_export_velocity': 100,
+
+    # Aoide (YuE2) Full-Song Generation
+    'aoide_default_route': 'package',
+    'aoide_comfyui_port': 8188,
+    'aoide_default_cot': 'full',
 }
 
 class ConfigManager:

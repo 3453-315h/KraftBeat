@@ -177,7 +177,8 @@ def separate_file(
     if output_dir is None:
         output_dir = Path(input_path).parent / Path(input_path).stem
     
-    return save_stems(stems, output_dir, sr)
+    # Demucs outputs stems at model.samplerate (44100 Hz)
+    return save_stems(stems, output_dir, 44100)
 
 
 def get_available_models() -> list:

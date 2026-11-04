@@ -1,0 +1,241 @@
+KRAFTBEAT - CLEAN-SWEEP REVIEW (static)
+Repo:    https://github.com/3453-315h/KraftBeat  (public, branch main)
+HEAD:    26ae6b5ec4043c1f7f1db8b66fe59152b1ae0a71  (2026-06-24, "Add src/models/ backend implementations and configure DirectML precision fallbacks")
+Scope:   ~16.7k lines Python in src/ + root scripts, configs, requirements, build files.
+Method:  fresh clone, py_compile on everything, pyflakes on everything, then manual read.
+NOT done: nothing was executed. No torch, PyQt6, audiocraft, GPU or DirectML here, so
+no app launch, no generation, no benchmarks. Every item below is from reading code
+or from static tools, and says which.
+
+COVERAGE (honest)
+ Read in full or near-full:  api/server.py, api/api_worker.py, models/base.py,
+   models/musicgen.py, models/ace_step.py, models/diffrhythm.py (generate/load/unload),
+   ui/workers.py, utils/config.py, utils/cache.py, utils/model_manager.py,
+   utils/stems.py, utils/audio.py, utils/project.py, cli.py, requirements, spec, run.bat.
+ Targeted reads / greps only:  ui/main_window.py (2808 lines), ui/panels/strudel_panel.py,
+   ui/dialogs/settings_panel.py, utils/performance.py, utils/streaming.py,
+   utils/recorder.py, device.py.
+ Static tools only (pyflakes, grep), not read line by line:  ui/panels/{ace_step,arranger,
+   diffrhythm,player,stems,voice}_panel.py, ui/themes.py, ui/dialogs/cache_dialog.py,
+   console_window.py, utils/effects.py, utils/midi.py, strudel/*, models/catalog.py,
+   download_models_cli.py, split_*.py, strudel_presets/*.js.
+ Items in those files may be missing from this list.
+
+NOTE ON new2fix.md
+ The repo's new2fix.md says every listed issue is "ALL FIXED". That is a claim inside
+ the repo, not evidence. At least one item contradicts it (#4, stems_panel logger).
+ Treat it as unverified.
+
+======================================================================
+FIX LIST (ordered by severity)
+======================================================================
+
+BLOCKERS - feature does not work as shipped
+
+1. src/api/server.py:219-229, 235 vs src/models/musicgen.py:577-587
+   REST /generate always fails. _run_generation passes infinite_mode and use_cache to
+   loader.generate(), but MusicGenLoader.generate() has no **kwargs. TypeError on every
+   job; the job ends in status "error".
+   Also server.py:259-271: if the file save fails, status still ends "complete" with
+   output_path None.
+
+2. src/models/diffrhythm.py:361-364
+   DiffRhythmLoader.generate() uses torch, but torch is only imported inside load()
+   (line 171, local scope). NameError inside the try, caught at 376, returns None.
+   Every DiffRhythm generation fails after doing all the work. (pyflakes: undefined name
+   'torch' x5.) Fix: import torch at the top of generate().
+
+3. src/cli.py:~100 + src/models/musicgen.py:155 (also ace_step.py, diffrhythm.py)
+   The documented "python -m src.cli ..." crashes on import: musicgen.py does
+   "from utils.config import get_config", but running from project root does not put
+   src/ on sys.path. I reproduced: ModuleNotFoundError: No module named 'utils'.
+   Only src/ui/main_window.py inserts src/ into sys.path (line 37).
+   Related: cli.py ~140 logs "Generated" and calls normalize_audio(audio) without a
+   None check.
+
+4. src/ui/panels/stems_panel.py:226
+   logger is used but never defined/imported (pyflakes undefined name). The temp-file
+   cleanup path raises NameError if os.remove fails. This is the exact code new2fix.md
+   claims to have fixed.
+
+HIGH - wrong results or silent misbehaviour
+
+5. src/models/musicgen.py:608-611 (dispatch) vs 623-626 (signature)
+   generate() calls _generate_audiocraft(..., melody_audio, progress_callback) but the
+   signature is (..., melody_audio, audio_prompt=None, progress_callback=None).
+   progress_callback lands in audio_prompt and the real audio_prompt is never passed.
+   Effects: audiocraft backend never gets continuation context in structured long-form
+   mode, and passing a progress callback makes it try to treat a function as audio.
+
+6. src/ui/workers.py:150-205 with the audiocraft path
+   Structured long-form assumes each chunk is new audio only. The transformers path
+   trims the prompt (musicgen.py ~680), but audiocraft generate_continuation returns
+   prompt + continuation. After fixing #5 the context would be duplicated at every
+   join. Pick one convention and trim in the audiocraft path too.
+
+7. src/utils/stems.py:75-85 and 137-175
+   Input is resampled to model.samplerate (44100) but stems are saved at the original
+   file's sr. Any non-44.1k source (MusicGen output is 32 kHz) gives stems that play
+   back slow/low. Fix: save at model.samplerate or resample back.
+
+8. Module identity split. Imports mix "utils.x / models.x / device" with
+   "src.utils.x / src.models.x / src.device":
+   workers.py:16, musicgen.py:154,180,255, ace_step.py:~140, stems.py:131,162,
+   player_panel.py:31-33, settings_panel.py:1061, cli.py.
+   Each module loads twice under two names. Consequences:
+   - musicgen.py runs twice, so the global monkey-patches (torch._C._nn.pad,
+     MusicgenForCausalLM.build_delay_pattern_mask/apply_delay_pattern_mask, lines
+     36-128) get applied twice; pad is wrapped around its own wrapper.
+   - DeviceType from src.device is a different Enum class than device.DeviceType used
+     in main_window. musicgen.py:~245 "device_type == DeviceType.DIRECTML" is
+     therefore False. DirectML detection only works because of the device_obj.type ==
+     'privateuseone' fallback. Fragile.
+   - ConfigManager/performance singletons can be duplicated.
+   Fix: one import root (src.* everywhere, run from project root) and delete the
+   sys.path.insert hack.
+
+9. src/utils/cache.py:17-35, 43-60 + musicgen.py download_model (~300)
+   HF_HOME/HF_HUB_CACHE are set lazily inside get_cache_dir(), after huggingface_hub is
+   already imported, so downloads still go to the global HF cache. Also get_cache_dir()
+   returns models/hub but get_cached_models() globs "models--*" in that dir while
+   models_dir default is the relative "models/" (config/settings.json), resolved
+   against cwd. The "downloaded" flags in the UI and API /models can be wrong, and the
+   cache dialog can show nothing. Set the env vars before any HF import (top of
+   main_window), and resolve models_dir against project root.
+
+10. src/models/musicgen.py:~560 + config default quant_mode=2 (int8)
+    Default settings select int8. DirectML correctly falls back to fp32 (line ~222),
+    but on CPU/MPS (bitsandbytes is CUDA-only) the quantized branch returns False
+    with no fallback to fp32 or to audiocraft. First launch on a non-CUDA, non-DML
+    machine would fail to load.
+
+11. src/api/server.py:71-76, api_worker.py
+    FastAPI is started automatically with CORS allow_origins=["*"] and no auth. Bound
+    to 127.0.0.1, but any web page open in the user's browser can POST /generate and
+    read /outputs (full filesystem paths). Restrict origins, add a token, or make the
+    API opt-in.
+    Also: /stop only sets a flag; nothing in the loader ever checks it, so it cannot
+    cancel. /status ignores its job_id param. set_loader is only called on the happy
+    path of _do_detect_device (main_window.py:1115); the CPU-fallback path (1125+)
+    never injects a loader, so the API reports "no model loaded" there.
+
+12. Dead settings. settings_panel.py:1060-1103 writes KRAFTBEAT_PRECISION, _MAX_VRAM,
+    _DEVICE_INDEX, _FLASH_ATTN, and the config keys offload_cpu, cuda_fp16,
+    cuda_flash_attn, use_compile, rocm_*, dml_fallback_cpu, device_index, max_vram,
+    clear_cache_on_exit, aggressive_gc, lazy_loading, model_unload_timeout. Only
+    KRAFTBEAT_BETTER_TRANSFORMER is read (musicgen.py:446) and its result is unused
+    (pyflakes: assigned but never used, 445-446). Precision works only because
+    main_window.py:1138-1146 reads quant_mode directly. device.py never uses the
+    chosen device index. UI controls that do nothing.
+
+MEDIUM
+
+13. src/models/musicgen.py:~700-706
+    except Exception around the sdp_kernel call re-runs the whole generate() on any
+    error, doubling the time on real failures and hiding the first traceback.
+    torch.backends.cuda.sdp_kernel is deprecated.
+
+14. src/models/musicgen.py:~735-750
+    Transformers chunk join. Continuation chunks have the prompt trimmed, so they are
+    new audio after the previous one. The code then crossfades prev tail with new head
+    as if they overlapped in time, shortening the result by overlap_duration per join
+    and blending unrelated material. Either do a true overlap or just append.
+
+15. src/ui/workers.py:63-92
+    "Native audiocraft long-form" for duration > 30 s with structured mode off just
+    calls generate(duration=N). audiocraft MusicGen does not do >30 s in one call;
+    README advertises up to 10 minutes. Route >30 s through chunked continuation.
+
+16. src/ui/workers.py:44-50, 330-ish
+    Signals named "finished" shadow QThread.finished on GenerationWorker,
+    ModelLoadWorker, ModelDownloadWorker. Works, but the built-in is hidden. Rename to
+    done/loaded.
+    Interrupt path (workers.py ~130) breaks the loop and then emits finished(full_audio)
+    which can be None if cancelled on chunk 1; check that the receiver handles it.
+
+17. src/utils/cache.py:189-195 delete_model_by_path
+    shutil.rmtree on any path handed in, no check it is under the models dir.
+
+18. src/utils/audio.py:~60-75
+    save_audio returns True after silently falling back from mp3/ogg to .wav (changes
+    the extension), so callers report a saved mp3 that does not exist. Return the
+    actual path.
+
+19. src/models/diffrhythm.py:~268
+    snapshot_download(resume_download=True): deprecated, ignored in current
+    huggingface_hub. unload() assumes self._model exists (it does, line 72) but
+    _models handling is inconsistent with self._device/_dr_* attributes after unload.
+
+20. src/models/musicgen.py:~478-495
+    "from transformers import AudiogenForConditionalGeneration" - I do not believe that
+    class exists in transformers; the AudioGen branch is dead and always returns False.
+    Verify against the pinned transformers.
+
+21. src/ui/panels/strudel_panel.py:435-441
+    Qt profile enables AllowRunningInsecureContent, JavascriptCanOpenWindows and
+    LocalContentCanAccessRemoteUrls. If strudel_dist/ is missing it falls back to
+    loading strudel.cc (line ~120) with those relaxed settings. strudel_dist is not in
+    the repo (checked git ls-files), so a fresh clone always takes the remote path.
+
+22. kraftbeat.spec:13-35
+    pathex only has src/, but workers.py/musicgen.py/stems.py import "src.*", so the
+    frozen exe will fail on those. hiddenimports lacks fastapi, uvicorn, audiocraft,
+    demucs, soundfile, basic_pitch. excludes lists PIL but requirements include pillow.
+    Treat the PyInstaller build as untested.
+
+23. requirements/base.txt
+    Unpinned audiocraft, numpy, torch-directml alongside av==12.0.0. I did not install
+    these here; verify the resolver is happy (audiocraft historically pins its own av
+    and numpy versions). Also git+https://github.com/ace-step/ACE-Step.git is an
+    unpinned HEAD dependency, so builds are not reproducible. Pin a commit.
+
+24. src/models/ace_step.py:48-49, 125-127
+    Two checkpoint folder names: DEFAULT "models/acestep" vs load() looks for
+    "models/ace-step". Pick one. ace_step_panel.py has duplicate dict key
+    'Vocal - Spoken Word' (lines 95 and 142); the second silently overrides the first.
+
+25. src/utils/streaming.py (~94-148)
+    OutputStream is stopped but never closed; stereo is collapsed to mono for playback
+    (chunk_mono).
+
+LOW / HYGIENE
+
+26. main_window.py: duplicate defs shadow earlier ones: show_stems_panel (2271 vs 2427),
+    clear_melody (1965 vs 2613), apply_dark_theme (220), apply_light_theme (2109);
+    13 unused imports; unused var 'e' at 2564.
+27. musicgen.py:626-665 redefines torch; the DirectML check block is pasted three
+    times (~222, ~236, ~255); the DirectML branch inside the int8/int4 block is dead
+    because precision was already forced to fp32 above it.
+28. Repo hygiene: Gemini_Generated_Image_71u4vd71u4vd71u4.png (22k-line binary diff),
+    kraftbeat_icons.png, a 19th-century Cradock Pass painting .jpg, test_output.txt
+    (UTF-16 PowerShell dump of an ImportError from a test_audiocraft.py that is not in
+    the repo), roadmap/Newproject/advanced_suggestions/new2fix md files at root.
+    f-strings without placeholders in cli.py (87,115,126,136,166,168) and
+    workers.py (465,477,493,529). config/phases*.json and settings.json have no schema.
+29. config.py:~150 unknown keys loaded from settings.json are kept unvalidated.
+
+======================================================================
+OPEN TEST GATES
+======================================================================
+ G1. There are no automated tests in the repo (git ls-files has no test_*.py). Nothing
+     gates any item above.
+ G2. Unrun: app launch on DirectML/CUDA/CPU, MusicGen small generation on both
+     backends, structured long-form (items 5, 6, 14, 15), ACE-Step and DiffRhythm
+     end-to-end (item 2 is certain from code), stems on a 32 kHz file (7), REST
+     /generate round trip (1), CLI (3), PyInstaller build (22), pip install on a clean
+     Python 3.12 venv (23).
+ G3. Suggested minimum after fixes: pytest smoke for import of every module from
+     project root; mocked-loader test for /generate; a 32 kHz stems round-trip length
+     check; a join-length test for the transformers chunk stitcher.
+
+======================================================================
+VERDICT
+======================================================================
+Not release-ready. The core MusicGen desktop path (transformers backend, short clips)
+looks plausible by reading, and the DirectML patching is thoughtful. But three
+shipped surfaces are broken by code I can point at: REST API (1), DiffRhythm (2), CLI
+(3). The two import roots (8) are the underlying cause of several fragile behaviours
+and should be fixed first. Long-form generation (5, 6, 14, 15) and stems at non-44.1k
+(7) give wrong output without raising errors, which is worse than crashing. No part
+of this was executed, so treat items 1, 2, 3, 4, 5, 7 as certain-by-code and the rest
+as high-confidence reading that deserves a run.

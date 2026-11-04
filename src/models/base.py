@@ -16,6 +16,15 @@ class MusicGeneratorBase(ABC):
         self.model_name: str = ""
         self.sample_rate: int = 32000
         self.is_loaded: bool = False
+        self._stop_requested: bool = False
+
+    def stop(self) -> None:
+        """Signal cooperative interruption of generation."""
+        self._stop_requested = True
+
+    def reset_stop(self) -> None:
+        """Reset stop signal."""
+        self._stop_requested = False
     
     @abstractmethod
     def load(self, model_name: str, **kwargs) -> bool:

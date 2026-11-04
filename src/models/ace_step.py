@@ -25,7 +25,7 @@ import numpy as np
 
 from .base import MusicGeneratorBase, register_backend
 from .catalog import MODEL_CATALOG
-from utils.config import get_config
+from src.utils.config import get_config
 
 logger = logging.getLogger(__name__)
 
@@ -121,10 +121,12 @@ class ACEStepLoader(MusicGeneratorBase):
             if checkpoint_dir:
                 self._checkpoint_dir = checkpoint_dir
             else:
-                # Use project-local models folder if it exists
-                local_models = os.path.join(os.getcwd(), "models", "ace-step")
-                if os.path.exists(local_models):
-                    self._checkpoint_dir = local_models
+                local_nohyphen = os.path.join(os.getcwd(), "models", "acestep")
+                local_hyphen = os.path.join(os.getcwd(), "models", "ace-step")
+                if os.path.exists(local_nohyphen):
+                    self._checkpoint_dir = local_nohyphen
+                elif os.path.exists(local_hyphen):
+                    self._checkpoint_dir = local_hyphen
                 else:
                     self._checkpoint_dir = DEFAULT_CHECKPOINT_DIR
             
@@ -190,7 +192,6 @@ class ACEStepLoader(MusicGeneratorBase):
             download_kwargs = {
                 "repo_id": repo_id,
                 "local_dir": target_dir,
-                "resume_download": True
             }
             if "allow_patterns" in MODEL_CATALOG[catalog_key]:
                  download_kwargs["allow_patterns"] = MODEL_CATALOG[catalog_key]["allow_patterns"]

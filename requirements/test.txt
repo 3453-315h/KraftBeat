@@ -1,0 +1,13 @@
+# Testing and CI dependencies for Kraftbeat
+pytest>=8.0.0
+numpy>=1.24.0
+scipy>=1.10.0
+soundfile>=0.12.0
+PyQt6>=6.5.0
+fastapi>=0.100.0
+httpx>=0.25.0
+uvicorn>=0.20.0
+keyring>=24.0.0
+psutil>=5.9.0
+pyyaml>=6.0
+

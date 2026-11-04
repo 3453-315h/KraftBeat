@@ -29,7 +29,7 @@ import numpy as np
 
 from .base import MusicGeneratorBase, register_backend
 from .catalog import MODEL_CATALOG
-from utils.config import get_config
+from src.utils.config import get_config
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +70,10 @@ class DiffRhythmLoader(MusicGeneratorBase):
         super().__init__()
         self.sample_rate = 44100  # DiffRhythm uses 44.1kHz
         self._model = None
+        self._models = None
+        self._device = None
+        self.code_path = None
+        self.max_frames = 6144
     
     @property
     def supports_vocals(self) -> bool:
@@ -269,7 +273,6 @@ class DiffRhythmLoader(MusicGeneratorBase):
             download_kwargs = {
                 "repo_id": repo_id,
                 "local_dir": target_dir,
-                "resume_download": True
             }
             if "allow_patterns" in MODEL_CATALOG[catalog_key]:
                  download_kwargs["allow_patterns"] = MODEL_CATALOG[catalog_key]["allow_patterns"]
@@ -298,8 +301,8 @@ class DiffRhythmLoader(MusicGeneratorBase):
         """
         Generate music with DiffRhythm.
         """
-        if not self.is_loaded:
-            logger.error("Model not loaded")
+        if not self.is_loaded or self._models is None or not self.code_path:
+            logger.error("DiffRhythm model not loaded or code path missing")
             return None
         
         if not lyrics:
@@ -358,10 +361,14 @@ class DiffRhythmLoader(MusicGeneratorBase):
                 # Aggressive VRAM flushing
                 import gc
                 gc.collect()
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-                    torch.mps.empty_cache()
+                try:
+                    import torch
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                        torch.mps.empty_cache()
+                except ImportError:
+                    pass
                 
                 
             # Convert result to numpy [channels, samples]
@@ -389,6 +396,13 @@ class DiffRhythmLoader(MusicGeneratorBase):
             self._model = None
             
         self.is_loaded = False
+        self._device = None
+        self._dr_inference = None
+        self._dr_prepare = None
+        self._dr_lrc = None
+        self._dr_style = None
+        self._dr_neg = None
+        self._dr_ref = None
         
         # Force garbage collection
         import gc

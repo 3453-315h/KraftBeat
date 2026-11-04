@@ -152,7 +152,7 @@ class LoaderBackend(Enum):
 from .catalog import MODEL_CATALOG as MUSICGEN_MODELS
 from .base import MusicGeneratorBase
 from src.utils.model_manager import ModelManager
-from utils.config import get_config
+from src.utils.config import get_config
 
 
 class MusicGenLoader(MusicGeneratorBase):
@@ -176,20 +176,32 @@ class MusicGenLoader(MusicGeneratorBase):
         
         # Ensure proper defaults for device info if None passed (e.g., during download)
         if self.device_info is None:
-            try:
-                from src.device import DeviceInfo, DeviceType
-            except ImportError:
-                try:
-                    from device import DeviceInfo, DeviceType
-                except ImportError:
-                    logger.error("Could not import device module")
-                    raise
+            from src.device import DeviceInfo, DeviceType
             self.device_info = DeviceInfo(DeviceType.CPU, "CPU", "cpu")
         
         super().__init__()
         self.processor = None
         self._sample_rate = 32000
         self.backend = LoaderBackend.NONE
+        self._stop_requested = False
+
+    def stop(self) -> None:
+        """Signal cooperative interruption of generation."""
+        self._stop_requested = True
+
+    def reset_stop(self) -> None:
+        """Reset stop signal."""
+        self._stop_requested = False
+
+    def _is_directml(self) -> bool:
+        """Helper to determine whether the active device is DirectML."""
+        from src.device import DeviceType
+        if self.device_info and self.device_info.device_type == DeviceType.DIRECTML:
+            return True
+        if hasattr(self, 'device_info') and hasattr(self.device_info, 'device_obj') and hasattr(self.device_info.device_obj, 'type'):
+            if self.device_info.device_obj.type == 'privateuseone':
+                return True
+        return False
         
     @property
     def supports_vocals(self) -> bool:
@@ -251,13 +263,7 @@ class MusicGenLoader(MusicGeneratorBase):
         ModelManager.instance().prepare_load(self, model_name)
 
         # Check if we are using DirectML
-        is_directml = False
-        from src.device import DeviceType
-        if self.device_info and self.device_info.device_type == DeviceType.DIRECTML:
-            is_directml = True
-        if hasattr(self, 'device_info') and hasattr(self.device_info, 'device_obj') and hasattr(self.device_info.device_obj, 'type'):
-             if self.device_info.device_obj.type == 'privateuseone':
-                 is_directml = True
+        is_directml = self._is_directml()
 
         if is_directml and precision in ('fp16', 'int8', 'int4'):
             logger.warning(f"DirectML backend does not support stable execution of '{precision}' precision for this model.")
@@ -266,36 +272,14 @@ class MusicGenLoader(MusicGeneratorBase):
             
         # Quantization forces Transformers backend
         if precision in ['int8', 'int4']:
-            is_directml = False
-            from src.device import DeviceType
-            if self.device_info and self.device_info.device_type == DeviceType.DIRECTML:
-                is_directml = True
-            if hasattr(self, 'device_info') and hasattr(self.device_info, 'device_obj') and hasattr(self.device_info.device_obj, 'type'):
-                 if self.device_info.device_obj.type == 'privateuseone':
-                     is_directml = True
-            
-            if is_directml:
-                logger.warning(f"Quantization ({precision}) is not supported on DirectML. Falling back to float16...")
-                precision = "fp16"
-            else:
-                logger.info(f"Quantization ({precision}) requested, forcing Transformers backend...")
-                if self._try_load_transformers(model_id, model_name, precision):
-                    return True
-                return False
+            logger.info(f"Quantization ({precision}) requested, forcing Transformers backend...")
+            if self._try_load_transformers(model_id, model_name, precision):
+                return True
+            return False
         
         # DirectML Optimization: Audiocraft DOES NOT support DirectML.
         # If we are on AMD/Intel, we MUST use Transformers to get GPU acceleration.
         # Otherwise Audiocraft will force CPU.
-        is_directml = False
-        from src.device import DeviceType
-        if self.device_info and self.device_info.device_type == DeviceType.DIRECTML:
-            is_directml = True
-            
-        # Also check device object itself just in case
-        if hasattr(self.device_info, 'device_obj') and hasattr(self.device_info.device_obj, 'type'):
-             if self.device_info.device_obj.type == 'privateuseone':
-                 is_directml = True
-
         if is_directml and "magnet" not in model_id.lower():
             logger.info("DirectML detected: Prioritizing Transformers backend for GPU acceleration.")
             if self._try_load_transformers(model_id, model_name, precision):
@@ -471,6 +455,12 @@ class MusicGenLoader(MusicGeneratorBase):
             elif precision == 'fp16':
                 dtype = torch.float16
                 logger.info("Using float16 precision")
+
+            # bitsandbytes quantization requires NVIDIA CUDA
+            if quant_config is not None and not torch.cuda.is_available():
+                logger.warning("Quantization (bitsandbytes) is only supported on NVIDIA CUDA. Falling back to fp32 on CPU/MPS/DirectML.")
+                quant_config = None
+                dtype = torch.float32
             
             # Load processor
             self.processor = AutoProcessor.from_pretrained(load_path)
@@ -506,7 +496,17 @@ class MusicGenLoader(MusicGeneratorBase):
             load_kwargs['attn_implementation'] = "eager"
             logger.info("Forcing eager attention implementation for DirectML compatibility.")
             
-            self.model = ModelClass.from_pretrained(load_path, **load_kwargs)
+            try:
+                self.model = ModelClass.from_pretrained(load_path, **load_kwargs)
+            except Exception as load_err:
+                if quant_config is not None:
+                    logger.warning(f"Quantized model load failed: {load_err}. Retrying with unquantized float32...")
+                    load_kwargs.pop('quantization_config', None)
+                    load_kwargs.pop('device_map', None)
+                    load_kwargs['torch_dtype'] = torch.float32
+                    self.model = ModelClass.from_pretrained(load_path, **load_kwargs)
+                else:
+                    raise
             
             # Move to device if available and not using device_map
             if self.device_info and self.model.device.type == 'cpu':
@@ -517,16 +517,7 @@ class MusicGenLoader(MusicGeneratorBase):
                     logger.warning(f"Failed to move model to device, falling back to CPU: {e}")
             
             # Detect DirectML device inside _try_load_transformers for conditional patches
-            _is_directml = False
-            try:
-                from src.device import DeviceType as _DeviceType
-                if self.device_info and self.device_info.device_type == _DeviceType.DIRECTML:
-                    _is_directml = True
-            except ImportError:
-                pass
-            if hasattr(self.device_info, 'device_obj') and hasattr(self.device_info.device_obj, 'type'):
-                if self.device_info.device_obj.type == 'privateuseone':
-                    _is_directml = True
+            _is_directml = self._is_directml()
             
             # DirectML Encodec CPU Fallback Patch:
             # EncodecModel uses a fused LSTM kernel (aten::_thnn_fused_lstm_cell) that
@@ -609,7 +600,7 @@ class MusicGenLoader(MusicGeneratorBase):
         if self.backend == LoaderBackend.AUDIOCRAFT:
             return self._generate_audiocraft(
                 prompt, duration, temperature, top_k, top_p, cfg_coef,
-                melody_audio, progress_callback
+                melody_audio, audio_prompt=audio_prompt, progress_callback=progress_callback
             )
         else:
             return self._generate_transformers(
@@ -698,6 +689,11 @@ class MusicGenLoader(MusicGeneratorBase):
                 )
             
             audio = output[0].cpu().numpy()
+            if audio_prompt is not None and "prompt_tensor" in locals():
+                prompt_samples = prompt_tensor.shape[-1]
+                if audio.shape[-1] > prompt_samples:
+                    audio = audio[..., prompt_samples:]
+                    logger.info(f"Trimmed {prompt_samples} prompt samples from audiocraft continuation. New audio: {audio.shape[-1]} samples")
             logger.info(f"Generated audio shape: {audio.shape}")
             return audio
             
@@ -716,24 +712,23 @@ class MusicGenLoader(MusicGeneratorBase):
             
             # Ensure model is on correct device
             device = self.model.device
-            
-
-                
             logger.info(f"Generating on {device}...")
 
             max_chunk_dur = get_config("max_chunk_duration", 30.0)
-            
-            # Use overlap for smoother transitions
-            overlap_dur = get_config("overlap_duration", 0.5) # Duration to crossfade/overlap
             
             total_generated_audio = []
             
             remaining_duration = duration
             chunk_idx = 0
             
-            last_chunk_audio = None
+            # Use initial audio_prompt if provided for continuation seed
+            last_chunk_audio = audio_prompt
             
             while remaining_duration > 0:
+                if getattr(self, "_stop_requested", False):
+                    logger.info("Generation stopped by user request.")
+                    break
+
                 # We generate full chunks, but might trim the last one
                 chunk_duration = min(remaining_duration, max_chunk_dur)
                 logger.info(f"Generating chunk {chunk_idx+1}: {chunk_duration}s (Remaining: {remaining_duration}s)")
@@ -758,9 +753,6 @@ class MusicGenLoader(MusicGeneratorBase):
                 if last_chunk_audio is not None:
                     try:
                         # Prepare audio prompt from previous chunk
-                        # Use last 10-15 seconds for best context
-                        # MusicGen expects (samples,) but processor handles it
-                        
                         proc_prompt = last_chunk_audio
                         
                         # Limit context length
@@ -774,7 +766,7 @@ class MusicGenLoader(MusicGeneratorBase):
                         if len(proc_prompt.shape) == 2 and proc_prompt.shape[0] == 1:
                             proc_prompt = proc_prompt.flatten()
                         elif len(proc_prompt.shape) == 2 and proc_prompt.shape[0] > 1:
-                             # Stereo to mono for conditioning (Models usually expect mono conditioning)
+                             # Stereo to mono for conditioning
                              proc_prompt = proc_prompt.mean(axis=0)
                             
                         audio_inputs = self.processor(
@@ -791,21 +783,16 @@ class MusicGenLoader(MusicGeneratorBase):
                         logger.warning(f"Failed to process audio prompt: {e}")
 
                 # Calculate tokens
-                # MusicGen generates 50 tokens per second
                 tokens_per_sec = get_config("tokens_per_second", 50) 
                 chunk_tokens = int(chunk_duration * tokens_per_sec)
                 
-                # If we have an audio prompt, we need to account for it in the context
                 prompt_length_tokens = 0
                 if "input_values" in inputs:
-                     # Calculate how many tokens the prompt consumes
-                     # 32000 samples -> 50 tokens (approx 640 samples per token)
                      audio_prompt_samples = inputs["input_values"].shape[-1]
                      magic_token_calc = get_config("magic_token_calc", 640)
                      prompt_length_tokens = int(audio_prompt_samples / magic_token_calc)
                      logger.info(f"Audio prompt length: {audio_prompt_samples} samples ({prompt_length_tokens} tokens)")
 
-                # We want chunk_duration of NEW audio
                 max_new_tokens = min(chunk_tokens, 1500 - prompt_length_tokens) 
                 
                 if max_new_tokens <= 0:
@@ -823,11 +810,16 @@ class MusicGenLoader(MusicGeneratorBase):
                 if top_p > 0: gen_kwargs["top_p"] = top_p
                 
                 with torch.no_grad():
-                    try:
-                        # Disable SDPA hardware acceleration for DirectML compatibility
-                        with torch.backends.cuda.sdp_kernel(enable_flash=False, enable_math=True, enable_mem_efficient=False):
+                    # DirectML compatibility: only invoke sdp_kernel if specifically on CUDA with sdp_kernel present
+                    use_sdp = torch.cuda.is_available() and hasattr(torch.backends.cuda, "sdp_kernel") and getattr(device, "type", "") == "cuda"
+                    if use_sdp:
+                        try:
+                            with torch.backends.cuda.sdp_kernel(enable_flash=False, enable_math=True, enable_mem_efficient=False):
+                                audio_values = self.model.generate(**inputs, **gen_kwargs)
+                        except Exception as sdp_err:
+                            logger.debug(f"sdp_kernel context failed ({sdp_err}), running standard generate.")
                             audio_values = self.model.generate(**inputs, **gen_kwargs)
-                    except Exception:
+                    else:
                         audio_values = self.model.generate(**inputs, **gen_kwargs)
                 
                 import gc
@@ -838,13 +830,10 @@ class MusicGenLoader(MusicGeneratorBase):
                     torch.mps.empty_cache()
                 
                 # IMPORTANT: MusicGen's generate returns [Input + Generated]
-                # If we provided an audio prompt, we must slice it off to get only the NEW audio
+                # If we provided an audio prompt, slice it off to get only the NEW sequential audio
                 chunk_audio_tensor = audio_values[0].cpu()
                 
                 if "input_values" in inputs:
-                    # Slice off the input part
-                    # The output length should be input_length + generated_length
-                    # We might get slightly more or less due to frame sizes, so we use the prompt sample count
                     input_samples = inputs["input_values"].shape[-1]
                     if chunk_audio_tensor.shape[-1] > input_samples:
                         chunk_audio_tensor = chunk_audio_tensor[..., input_samples:]
@@ -853,26 +842,7 @@ class MusicGenLoader(MusicGeneratorBase):
                         logger.warning("Output audio shorter than input prompt? Returning full output.")
                 
                 chunk_audio = chunk_audio_tensor.numpy()
-                
-                # Append to total with crossfade stitching
-                if len(total_generated_audio) == 0:
-                    total_generated_audio.append(chunk_audio)
-                else:
-                    # Crossfade stitching for smooth transitions
-                    overlap_samples = int(overlap_dur * self.sample_rate)
-                    prev = total_generated_audio[-1]
-                    if overlap_samples > 0 and prev.shape[-1] >= overlap_samples and chunk_audio.shape[-1] >= overlap_samples:
-                        fade_out = np.linspace(1.0, 0.0, overlap_samples)
-                        fade_in = np.linspace(0.0, 1.0, overlap_samples)
-                        if prev.ndim == 2:
-                            fade_out = fade_out[np.newaxis, :]
-                            fade_in = fade_in[np.newaxis, :]
-                        blended = prev[..., -overlap_samples:] * fade_out + chunk_audio[..., :overlap_samples] * fade_in
-                        total_generated_audio[-1] = prev[..., :-overlap_samples]
-                        total_generated_audio.append(blended)
-                        total_generated_audio.append(chunk_audio[..., overlap_samples:])
-                    else:
-                        total_generated_audio.append(chunk_audio)
+                total_generated_audio.append(chunk_audio)
 
                 # Setup for next chunk (use the NEW audio as prompt for next)
                 last_chunk_audio = chunk_audio
@@ -880,7 +850,14 @@ class MusicGenLoader(MusicGeneratorBase):
                 chunk_idx += 1
                 
                 if progress_callback:
-                    progress_callback(duration - remaining_duration, duration)
+                    cancel = progress_callback(duration - remaining_duration, duration)
+                    if cancel is False or getattr(self, "_stop_requested", False):
+                        logger.info("Generation halted early by callback / stop request.")
+                        break
+
+            if not total_generated_audio:
+                logger.warning("No audio chunks generated (cancelled or interrupted).")
+                return None
 
             # Concatenate all chunks and handle potentially 1D or 2D arrays
             processed_chunks = []

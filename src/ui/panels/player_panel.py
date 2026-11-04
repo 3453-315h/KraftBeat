@@ -218,6 +218,12 @@ class PlayerPanel(QWidget):
         self.save_btn.clicked.connect(self.save_audio)
         self.save_btn.setEnabled(False)
         exp_layout.addWidget(self.save_btn)
+
+        self.transcribe_btn = QPushButton("🎹 Transcribe to MIDI")
+        self.transcribe_btn.setStyleSheet("background-color: #2b5278; color: white; font-weight: bold; padding: 6px;")
+        self.transcribe_btn.clicked.connect(self.transcribe_audio_to_midi)
+        self.transcribe_btn.setEnabled(False)
+        exp_layout.addWidget(self.transcribe_btn)
         
         exp_layout.addStretch()
         tools_layout.addWidget(export_group)
@@ -245,6 +251,7 @@ class PlayerPanel(QWidget):
         self.stop_btn.setEnabled(True)
         self.position_slider.setEnabled(True)
         self.save_btn.setEnabled(True)
+        self.transcribe_btn.setEnabled(True)
         self.position_slider.setValue(0)
         self.time_label.setText("0:00")
         
@@ -380,4 +387,51 @@ class PlayerPanel(QWidget):
             final_audio = self.get_processed_audio()
             final_audio = normalize_audio(final_audio)
             
-            save_audio(final_audio, path, self.current_sample_rate, fmt, bitrate)
+            saved_path = save_audio(final_audio, path, self.current_sample_rate, fmt, bitrate)
+            if saved_path:
+                logger.info(f"Saved audio to: {saved_path}")
+            else:
+                logger.error("Failed to save audio")
+                QMessageBox.warning(self, "Error", "Failed to save audio file.")
+
+    def transcribe_audio_to_midi(self):
+        """Transcribe currently loaded audio in PlayerPanel to MIDI."""
+        if self.current_audio is None:
+            return
+
+        import tempfile
+        import os
+        from src.utils.audio import save_audio
+        from src.utils.midi import transcribe_audio
+        from src.ui.panels.transcription_panel import TranscriptionDialog
+        from src.utils.config import get_config
+
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            temp_path = f.name
+
+        try:
+            audio_to_transcribe = self.get_processed_audio()
+            if audio_to_transcribe is None:
+                audio_to_transcribe = self.current_audio
+            save_audio(audio_to_transcribe, temp_path, self.current_sample_rate)
+            result = transcribe_audio(temp_path)
+            if result and result.notes:
+                dlg = TranscriptionDialog(result, parent=self)
+                dlg.exec()
+            else:
+                engine = get_config("transcription_engine", "basic-pitch")
+                QMessageBox.warning(
+                    self,
+                    "Transcription Failed",
+                    f"Could not extract MIDI notes using engine '{engine}'.\nPlease check that the engine dependencies are installed."
+                )
+        except Exception as e:
+            logger.error(f"PlayerPanel transcription error: {e}")
+            QMessageBox.critical(self, "Transcription Error", f"Failed to transcribe audio:\n{e}")
+        finally:
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception as e:
+                    logger.debug(f"Failed to clean up temp file {temp_path}: {e}")
+

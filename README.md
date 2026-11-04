@@ -1,6 +1,11 @@
-# Kraftbeat - AI Music & Vocal Generator
+# Kraftbeat - AI Music & Vocal Generator (v1.0.0)
 
-A comprehensive AI music creation suite powered by **MusicGen**, **ACE-Step**, and **DiffRhythm**.  
+[![CI](https://github.com/kraftbeat/kraftbeat/actions/workflows/ci.yml/badge.svg)](https://github.com/kraftbeat/kraftbeat/actions/workflows/ci.yml)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/kraftbeat/kraftbeat)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-brightgreen.svg)](https://www.python.org/)
+
+A comprehensive AI music creation suite powered by **MusicGen**, **ACE-Step**, **DiffRhythm**, and **YuE2 (Aoide)**.  
 Generate instrumentals, full songs with vocals, and long-form compositions up to **10 minutes**.
 
 GPU-accelerated with DirectML/CUDA/ROCm/ZLUDA support for AMD, NVIDIA, and Intel GPUs.
@@ -25,7 +30,7 @@ GPU-accelerated with DirectML/CUDA/ROCm/ZLUDA support for AMD, NVIDIA, and Intel
   - 🌟 **Quick Fill**: Load all recent generations from `outputs/` in one click
   - 💾 **One-Click Render**: Normalize, stitch, and export to WAV with the global player pre-loaded
 - 🎚️ **Stems Panel** - Multi-track stem separation (Vocals/Drums/Bass/Other)
-  - 🎹 **Audio-to-MIDI**: Extract polyphonic MIDI directly from isolated stems (Powered by Spotify's basic-pitch)
+- 🎹 **Audio-to-MIDI Transcription & Piano Roll** - Extract polyphonic MIDI directly from stems, generator outputs, or local audio files with interactive piano roll editor and per-instrument strips (Powered by Spotify's basic-pitch and Kyutai's MuScriptor)
 - 🎲 **Variations** - Generate multiple variations to compare (auto-saved)
 - 🎤 **ACE-Step Integration** - Generate full songs with **Vocals** and lyrics
   - 🎙️ **The Voice Lab**: Dedicated UI to extract, save, and manage custom voice clones from any acapella audio file
@@ -37,29 +42,24 @@ GPU-accelerated with DirectML/CUDA/ROCm/ZLUDA support for AMD, NVIDIA, and Intel
   - 🎼 **DiffRhythm Full**: Support for the uncompressed, high-fidelity full-length model
   - 🎨 **60+ Style Presets**: Organized by genre, era, and vocal style
   - ⚙️ **Parameters**: Steps (8-64), CFG strength (1.0-8.0), Seed
-- 🎹 **Strudel Live Coding** - Embedded algorithmic music environment
-  - 📦 **Offline Mode**: Bundled for exe compilation, works without internet
-  - 🎼 **135+ Pattern Presets**: Techno, House, DnB, Hip-Hop, Ambient, World, Experimental, Classic, Dubstep, Lo-Fi (Production-Quality)
-  - 🎨 **8 Visual Themes**: Kraftbeat, Neon Nights, Forest, Ocean, Fire, Midnight, Sunrise, Arctic
-  - 📀 **22 Downloadable Sample Packs**: Drum machines, Dirt-Samples, Piano, VCSL Orchestra, and more
-  - 📊 **Visualizers**: Oscilloscope and spectrum analyzer (toggle with 📊 button)
-  - 📝 **Code Snippets**: 10+ ready-to-use patterns for drums, bass, chords, melody
-  - 🎹 **MIDI Input**: Connect MIDI keyboard via Web MIDI API (toggle with 🎹 button)
-  - 🔊 **TidalCycles Patterns**: Create beats with `s("bd sd hh")`
+- 🎵 **Aoide (YuE2) Integration** - Full-song generation with vocals + accompaniment at native 48 kHz stereo
+  - 🎼 **Symbolic Planning**: Uses ABC-notation score planning for melody, chords, structure, and vocal alignment
+  - ⚡ **Dual Execution Routes**: Official `yue2` isolated worker package and managed ComfyUI int8 adapter
+  - 🛡️ **GPU Lease Manager**: Strict inter-process ModelManager lease coordination to protect VRAM
 - 🎼 **Phases Editor** - Customize phase modifiers in Settings → 🎼 Phases (EDM/Jazz/Ambient presets)
 
 ### Performance & Compute
 
 - ⚙️ **Settings Dialog** - General, Audio, Solutions, and **GPU-specific tabs**
-- 🧠 **Deep VRAM Optimizations**: Aggressive Garbage Collection and Dynamic KV Caching explicitly configured to allow massive 3.3B+ parameter models to run flawlessly on 8GB VRAM setups
+- 🧠 **Deep VRAM Optimizations**: Aggressive Garbage Collection and Dynamic KV Caching explicitly configured to allow massive 3.3B+ parameter models to run on 8GB VRAM setups
 - 💡 **Solutions Tab** - Quick fixes for common issues (e.g., Memory/Quantization, CPU Offloading)
 - 🖥️ **Compute Backend** - Explicit selection with dedicated settings:
-  - **DirectML**: Default for AMD/Intel on Windows (Fixed native GPU execution, no CPU fallbacks!)
+  - **DirectML**: For AMD/Intel GPUs on Windows. Note: Models utilizing native CUDA kernels (e.g. `audiocraft`) fall back to CPU; lightweight transformers execute via DirectML tensor ops where supported.
   - **CUDA**: Native NVIDIA support (FP16, Flash Attention, torch.compile)
   - **ROCm**: AMD Native - **Now with Windows 11 Preview support!** (RX 7000/9000, Ryzen AI)
   - **ZLUDA**: Drop-in CUDA support for AMD (requires external setup)
 - ⚡ **8-bit Quantization** - Reduces VRAM usage by ~50%
-- 📦 **Model Manager** - Download and manage AI models + Strudel sample packs
+- 📦 **Model Manager** - Download and manage AI models
 - ⬇️ **Easy Install** - Download via UI (Model Manager) or CLI (`download_models.bat`)
 
 ### Model Types
@@ -90,15 +90,30 @@ GPU-accelerated with DirectML/CUDA/ROCm/ZLUDA support for AMD, NVIDIA, and Intel
 
 ## Quick Start
 
+### Running the Application
+
 ```bash
-# GUI (Windows Virtual Environment)
+# Linux / macOS (Virtual Environment)
+./run.sh
+
+# Windows (Virtual Environment)
 .\run.bat
 
-# CLI
+# Headless CLI Generation
 python -m src.cli "ambient chill" -d 60 -o chill.wav
 ```
 
-> **Note:** Kraftbeat v0.4.0 completely patches DirectML instability without resorting to CPU fallbacks! You now get 100% native GPU acceleration on AMD and Intel cards.
+### Packaging / Standalone Executable
+
+```bash
+# Linux / macOS PyInstaller build
+./build.sh
+
+# Windows PyInstaller build
+.\build.bat
+```
+
+> **Note:** Kraftbeat v1.0.0 provides robust DirectML, CUDA, ROCm, and CPU execution with automated fallback protection and memory management across AMD, NVIDIA, Intel, and Apple/Linux environments.
 
 ## REST API (DAW Integration)
 
@@ -240,3 +255,23 @@ Kraftbeat is built on a modular architecture using **PyQt6** for the frontend an
 | `config/phases_10.json` | 10 phases (Default) |
 | `config/phases_13.json` | 13 phases for Balanced mode |
 | `config/phases_21.json` | 21 phases for Coherent mode |
+
+## Testing & Quality Assurance
+
+Kraftbeat includes a comprehensive automated test suite covering all subsystems (audio processing, dynamic structure, stem separation, transcription dialogs, REST API, CLI, and model generation pipelines).
+
+```bash
+# Run complete test suite (headless with offscreen Qt platform)
+QT_QPA_PLATFORM=offscreen pytest tests/ -v
+```
+
+All UI tests run reliably in headless environments using Qt's `offscreen` platform plugin.
+
+## CI/CD Pipeline
+
+Continuous Integration is powered by GitHub Actions (`.github/workflows/ci.yml`), testing:
+- **Matrix**: Ubuntu (`ubuntu-latest`) and Windows (`windows-latest`) on Python 3.10, 3.11, and 3.12
+- **Syntax & Compilation**: `compileall` checks across all source modules
+- **Unit & Integration Tests**: Full test suite validation via `pytest`
+- **Packaging Verification**: Standalone bundle build validation via PyInstaller (`kraftbeat.spec`)
+

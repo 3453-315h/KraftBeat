@@ -93,11 +93,12 @@ def apply_compression(
         else:
             envelope = abs_audio
         
-        # Calculate gain reduction
+        # Calculate gain reduction factor (<= 1.0)
         gain = np.ones_like(envelope)
         above_thresh = envelope > threshold
-        gain[above_thresh] = threshold + (envelope[above_thresh] - threshold) / ratio
-        gain = gain / np.maximum(envelope, 1e-10)
+        if np.any(above_thresh):
+            compressed_level = threshold + (envelope[above_thresh] - threshold) / ratio
+            gain[above_thresh] = compressed_level / envelope[above_thresh]
         
         # Simple smoothing (attack/release approximation)
         from scipy.ndimage import uniform_filter1d

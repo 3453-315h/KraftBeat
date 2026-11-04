@@ -15,7 +15,7 @@ from PyQt6.QtGui import QFont, QColor
 
 # Full model catalog with proper display names
 # Full model catalog imported from shared module
-from models.catalog import MODEL_CATALOG
+from src.models.catalog import MODEL_CATALOG
 
 
 class ModelManagerPanel(QWidget):
@@ -43,7 +43,7 @@ class ModelManagerPanel(QWidget):
         header_layout.addStretch()
         
         # Models location info
-        from utils.cache import _MODELS_DIR
+        from src.utils.cache import _MODELS_DIR
         location_label = QLabel(f"📁 Models stored in: {_MODELS_DIR}")
         location_label.setStyleSheet("color: #888; font-size: 11px;")
         header_layout.addWidget(location_label)
@@ -78,11 +78,6 @@ class ModelManagerPanel(QWidget):
         self.installed_tab = QWidget()
         self.setup_installed_tab(self.installed_tab)
         self.tabs.addTab(self.installed_tab, "💾 Installed Models")
-        
-        # Tab 3: Strudel Sample Packs
-        self.strudel_samples_tab = QWidget()
-        self.setup_strudel_samples_tab(self.strudel_samples_tab)
-        self.tabs.addTab(self.strudel_samples_tab, "🎹 Strudel Samples")
         
         # Progress Bar (Global for dialog)
         self.progress_group = QGroupBox("Download Progress")
@@ -327,202 +322,13 @@ class ModelManagerPanel(QWidget):
         btn_layout.addStretch()
         layout.addLayout(btn_layout)
 
-    def setup_strudel_samples_tab(self, parent):
-        """Setup Strudel sample packs tab."""
-        from pathlib import Path
-        
-        layout = QVBoxLayout(parent)
-        layout.setSpacing(10)
-        
-        # Info bar
-        info_frame = QFrame()
-        info_frame.setStyleSheet("""
-            QFrame {
-                background-color: #252530;
-                border-radius: 8px;
-                padding: 10px;
-            }
-        """)
-        info_layout = QVBoxLayout(info_frame)
-        
-        info = QLabel(
-            "🎹 <b>Strudel Sample Packs</b><br>"
-            "<span style='color: #a0a0a0;'>Download sample packs for offline live coding. "
-            "Essential packs enable drum patterns like <code>s(\"bd sd\")</code>.</span>"
-        )
-        info.setWordWrap(True)
-        info_layout.addWidget(info)
-        
-        layout.addWidget(info_frame)
-        
-        # Sample packs table
-        self.strudel_table = QTableWidget()
-        self.strudel_table.setColumnCount(5)
-        self.strudel_table.setHorizontalHeaderLabels([
-            "Sample Pack", "Category", "Size", "Status", "Action"
-        ])
-        
-        header = self.strudel_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for i in range(1, 5):
-            header.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
-        
-        self.strudel_table.verticalHeader().setDefaultSectionSize(40)
-        self.strudel_table.verticalHeader().setVisible(False)
-        self.strudel_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.strudel_table.setAlternatingRowColors(True)
-        self.strudel_table.setStyleSheet("""
-            QTableWidget {
-                gridline-color: #353545;
-                border: 1px solid #404050;
-                border-radius: 8px;
-            }
-            QTableWidget::item {
-                padding: 8px;
-            }
-            QTableWidget::item:alternate {
-                background-color: #252530;
-            }
-            QHeaderView::section {
-                background-color: #303040;
-                padding: 8px;
-                border: none;
-                font-weight: bold;
-            }
-        """)
-        
-        layout.addWidget(self.strudel_table)
-        
-        # Load sample catalog
-        self.load_strudel_samples()
-    
-    def load_strudel_samples(self):
-        """Load and display Strudel sample packs."""
-        from pathlib import Path
-        
-        try:
-            from strudel.sample_catalog import STRUDEL_SAMPLE_CATALOG
-        except ImportError:
-            # Fallback if catalog not found
-            self.strudel_table.setRowCount(1)
-            item = QTableWidgetItem("Sample catalog not found")
-            self.strudel_table.setItem(0, 0, item)
-            return
-        
-        # Check which packs are installed
-        samples_dir = Path(__file__).parent.parent.parent.parent / "strudel_samples"
-        
-        self.strudel_table.setRowCount(len(STRUDEL_SAMPLE_CATALOG))
-        
-        for row, (key, info) in enumerate(STRUDEL_SAMPLE_CATALOG.items()):
-            # Check if installed
-            pack_dir = samples_dir / key
-            is_installed = pack_dir.exists() and any(pack_dir.iterdir()) if pack_dir.exists() else False
-            
-            # Name with essential indicator
-            name = info['display_name']
-            if info.get('essential', False):
-                name = "⭐ " + name
-            item_name = QTableWidgetItem(name)
-            item_name.setToolTip(info['description'])
-            self.strudel_table.setItem(row, 0, item_name)
-            
-            # Category
-            item_cat = QTableWidgetItem(info.get('category', 'Other'))
-            self.strudel_table.setItem(row, 1, item_cat)
-            
-            # Size
-            item_size = QTableWidgetItem(info.get('size_estimate', 'Unknown'))
-            self.strudel_table.setItem(row, 2, item_size)
-            
-            # Status
-            if is_installed:
-                status_item = QTableWidgetItem("✅ Installed")
-                status_item.setForeground(QColor("#44cc44"))
-            else:
-                status_item = QTableWidgetItem("Not installed")
-                status_item.setForeground(QColor("#808090"))
-            self.strudel_table.setItem(row, 3, status_item)
-            
-            # Action button
-            if is_installed:
-                btn = QPushButton("✓ Installed")
-                btn.setEnabled(False)
-                btn.setStyleSheet("""
-                    QPushButton {
-                        background-color: #44aa44;
-                        border: none;
-                        border-radius: 5px;
-                        padding: 6px 12px;
-                        color: white;
-                    }
-                """)
-            else:
-                btn = QPushButton("⬇ Download")
-                btn.setStyleSheet("""
-                    QPushButton {
-                        background-color: #648cff;
-                        border: none;
-                        border-radius: 5px;
-                        padding: 6px 12px;
-                        font-weight: bold;
-                    }
-                    QPushButton:hover {
-                        background-color: #7499ff;
-                    }
-                """)
-                btn.setToolTip(f"Download {info['display_name']}\n{info['size_estimate']}\n{info['description']}")
-                btn.clicked.connect(lambda checked, k=key: self.download_strudel_samples(k))
-            
-            self.strudel_table.setCellWidget(row, 4, btn)
-    
-    def download_strudel_samples(self, pack_key: str):
-        """Download a Strudel sample pack."""
-        from pathlib import Path
-        
-        try:
-            from strudel.sample_catalog import STRUDEL_SAMPLE_CATALOG
-        except ImportError:
-            QMessageBox.warning(self, "Error", "Sample catalog not found")
-            return
-        
-        if pack_key not in STRUDEL_SAMPLE_CATALOG:
-            QMessageBox.warning(self, "Error", f"Unknown sample pack: {pack_key}")
-            return
-        
-        pack_info = STRUDEL_SAMPLE_CATALOG[pack_key]
-        display_name = pack_info['display_name']
-        
-        self.progress_group.setVisible(True)
-        self.progress_label.setText(f"⬇️ Downloading {display_name}... ({pack_info['size_estimate']})")
-        
-        # Download in background
-        from ui.workers import StrudelSampleDownloadWorker
-        
-        samples_dir = Path(__file__).parent.parent.parent.parent / "strudel_samples"
-        
-        self.sample_download_worker = StrudelSampleDownloadWorker(pack_key, pack_info, samples_dir)
-        self.sample_download_worker.finished.connect(lambda success: self.sample_download_finished(success, display_name))
-        self.sample_download_worker.status.connect(self.update_status)
-        self.sample_download_worker.start()
-    
-    def sample_download_finished(self, success, message):
-        """Handle sample pack download completion."""
-        self.progress_group.setVisible(False)
-        
-        if success:
-            QMessageBox.information(self, "Download Complete", f"✅ Successfully downloaded {message}!")
-            self.load_strudel_samples()  # Refresh the list
-        else:
-            QMessageBox.warning(self, "Download Failed", f"❌ Failed to download sample pack:\n{message}")
-
     def refresh_all(self):
         self.load_installed()
         self.load_catalog()
 
     def load_installed(self):
         try:
-            from utils.cache import get_cached_models, get_total_cache_size
+            from src.utils.cache import get_cached_models, get_total_cache_size
             
             models = get_cached_models()
             total_bytes, total_human = get_total_cache_size()
@@ -589,7 +395,7 @@ class ModelManagerPanel(QWidget):
 
     def load_catalog(self):
         """Load the model catalog with proper display names."""
-        from utils.cache import get_cached_models
+        from src.utils.cache import get_cached_models
         
         # Get installed models to mark them
         installed = get_cached_models()
@@ -710,7 +516,7 @@ class ModelManagerPanel(QWidget):
         )
         
         if reply == QMessageBox.StandardButton.Yes:
-            from utils.cache import delete_model_by_path
+            from src.utils.cache import delete_model_by_path
             success = delete_model_by_path(model['path'])
             if success:
                 QMessageBox.information(self, "Deleted", f"Successfully deleted {display_name}")
@@ -732,19 +538,19 @@ class ModelManagerPanel(QWidget):
         self.progress_label.setText(f"⬇️ Downloading {display_name}... ({model_info['download_size']})")
         
         # Import and run download in background
-        from ui.workers import ModelDownloadWorker
+        from src.ui.workers import ModelDownloadWorker
         
         loader = None
         
         try:
             if family in ['MusicGen', 'AudioGen', 'MAGNeT']:
-                from models.musicgen import MusicGenLoader
+                from src.models.musicgen import MusicGenLoader
                 loader = MusicGenLoader(None)
             elif family == 'ACESTEP':
-                from models.ace_step import ACEStepLoader
+                from src.models.ace_step import ACEStepLoader
                 loader = ACEStepLoader()
             elif family == 'DIFFRHYTHM':
-                from models.diffrhythm import DiffRhythmLoader
+                from src.models.diffrhythm import DiffRhythmLoader
                 loader = DiffRhythmLoader()
             else:
                 QMessageBox.warning(self, "Error", f"Unknown model family: {family}")

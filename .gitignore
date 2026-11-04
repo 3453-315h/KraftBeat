@@ -18,7 +18,6 @@ env/
 
 # Project non-code folders
 outputs/
-tests/
 
 # IDE
 .idea/

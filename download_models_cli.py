@@ -47,6 +47,9 @@ def main():
             elif family == 'DIFFRHYTHM':
                 from models.diffrhythm import DiffRhythmLoader
                 loaders[family] = DiffRhythmLoader()
+            elif family == 'YUE2':
+                from models.yue2 import YuE2Loader
+                loaders[family] = YuE2Loader()
         return loaders.get(family)
 
     while True:

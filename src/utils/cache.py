@@ -12,20 +12,26 @@ from pathlib import Path
 from typing import List, Dict, Optional
 from datetime import datetime
 
-from utils.config import get_config
+from src.utils.config import get_config
 
 logger = logging.getLogger(__name__)
 
 # Set cache to project directory
 _PROJECT_ROOT = Path(__file__).parent.parent.parent  # Go up from utils/ to project root
-_MODELS_DIR = Path(get_config("models_dir", str(_PROJECT_ROOT / "models")))
+raw_models_dir = get_config("models_dir", "models/")
+_MODELS_DIR = (Path(raw_models_dir) if Path(raw_models_dir).is_absolute() else (_PROJECT_ROOT / raw_models_dir)).resolve()
+
+# Set environment variables early so HuggingFace uses our directory
+os.environ.setdefault("HF_HOME", str(_MODELS_DIR))
+os.environ.setdefault("TRANSFORMERS_CACHE", str(_MODELS_DIR / "hub"))
+os.environ.setdefault("HF_HUB_CACHE", str(_MODELS_DIR / "hub"))
 
 def get_cache_dir() -> Path:
     """Get HuggingFace cache directory (in project models folder)."""
     # Ensure models directory exists
     _MODELS_DIR.mkdir(exist_ok=True)
     
-    # Set environment variable so HuggingFace uses our directory
+    # Ensure environment variables are set
     os.environ["HF_HOME"] = str(_MODELS_DIR)
     os.environ["TRANSFORMERS_CACHE"] = str(_MODELS_DIR / "hub")
     os.environ["HF_HUB_CACHE"] = str(_MODELS_DIR / "hub")
@@ -234,10 +240,18 @@ def delete_model(model_name: str) -> bool:
 
 
 def delete_model_by_path(path: str) -> bool:
-    """Delete a cached model by its full path."""
+    """Delete a cached model by its full path with strict directory containment check."""
     try:
-        shutil.rmtree(path)
-        logger.info(f"Deleted: {path}")
+        target = Path(path).resolve()
+        models_root = _MODELS_DIR.resolve()
+        if not target.is_relative_to(models_root):
+            logger.error(f"Security error: path '{path}' is not within models directory '{models_root}'")
+            return False
+        if not target.exists():
+            logger.warning(f"Path does not exist: {target}")
+            return False
+        shutil.rmtree(target)
+        logger.info(f"Deleted: {target}")
         return True
     except Exception as e:
         logger.error(f"Failed to delete {path}: {e}")

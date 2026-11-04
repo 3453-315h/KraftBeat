@@ -36,26 +36,26 @@ from PyQt6.QtGui import QKeySequence
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from device import get_device, DeviceInfo, DeviceType
-from models.musicgen import MusicGenLoader, MUSICGEN_MODELS, list_models
-from utils.audio import save_audio, normalize_audio
-from utils.streaming import StreamingGenerator
+from src.device import get_device, DeviceInfo, DeviceType
+from src.models.musicgen import MusicGenLoader, MUSICGEN_MODELS, list_models
+from src.utils.audio import save_audio, normalize_audio
+from src.utils.streaming import StreamingGenerator
 
 # Import from refactored modules
-from ui.workers import QTextEditLogger, GenerationWorker, ModelLoadWorker, VariationWorker
-from ui.themes import apply_dark_theme, apply_light_theme, DARK_STYLESHEET, LIGHT_STYLESHEET
-from ui.panels.stems_panel import StemsPanel
-from ui.panels.ace_step_panel import ACEStepPanel
-from ui.panels.diffrhythm_panel import DiffRhythmPanel
-from ui.panels.player_panel import PlayerPanel  # New Global Player
-from ui.dialogs.settings_panel import SettingsPanel
-from ui.dialogs.cache_dialog import ModelManagerPanel
-from ui.dialogs.console_window import ConsoleWindow
-from ui.panels.strudel_panel import StrudelPanel
-from ui.panels.voice_panel import VoicePanel
-from ui.panels.arranger_panel import ArrangerPanel
-from api.api_worker import APIWorker
-from api.server import set_loader as api_set_loader
+from src.ui.workers import QTextEditLogger, GenerationWorker, ModelLoadWorker, VariationWorker
+from src.ui.themes import apply_dark_theme, apply_light_theme, DARK_STYLESHEET, LIGHT_STYLESHEET
+from src.ui.panels.stems_panel import StemsPanel
+from src.ui.panels.ace_step_panel import ACEStepPanel
+from src.ui.panels.diffrhythm_panel import DiffRhythmPanel
+from src.ui.panels.player_panel import PlayerPanel  # New Global Player
+from src.ui.dialogs.settings_panel import SettingsPanel
+from src.ui.dialogs.cache_dialog import ModelManagerPanel
+from src.ui.dialogs.console_window import ConsoleWindow
+from src.ui.panels.voice_panel import VoicePanel
+from src.ui.panels.arranger_panel import ArrangerPanel
+from src.ui.panels.aoide_panel import AoidePanel
+from src.api.api_worker import APIWorker
+from src.api.server import set_loader as api_set_loader
 
 logging.basicConfig(
     level=logging.INFO,
@@ -80,15 +80,15 @@ class MainWindow(QMainWindow):
         self.loader: Optional[MusicGenLoader] = None
         self.current_sample_rate = 32000
         self.generation_history = []
-        self.auto_save = False  # Auto-save handled by individual panels
         self.current_prompt = ""
         self.prompt_history = []
         self.current_audio = None
         self.is_playing = False
         
         # Load settings
-        from utils.config import ConfigManager
+        from src.utils.config import ConfigManager
         self.app_settings = ConfigManager.instance().get_all()
+        self.auto_save = ConfigManager.instance().get("auto_save", True)
         self.is_dark_theme = True
         self.console_window = None
         self.api_worker = None
@@ -176,19 +176,20 @@ class MainWindow(QMainWindow):
         self.diffrhythm_panel.play_audio.connect(self.handle_external_audio)
         self.stack.addWidget(self.diffrhythm_panel)  # Index 5
         
-        # --- Page 6: Strudel (Live Coding) ---
-        self.strudel_panel = StrudelPanel(self)
-        self.stack.addWidget(self.strudel_panel)  # Index 6
-        
-        # --- Page 7: Voice Lab ---
+        # --- Page 6: Voice Lab ---
         self.voice_panel = VoicePanel(self)
-        self.stack.addWidget(self.voice_panel)  # Index 7
+        self.stack.addWidget(self.voice_panel)  # Index 6
         self.voice_panel.voices_updated.connect(self.ace_step_panel.refresh_voices_list)
         
-        # --- Page 8: Block Arranger ---
+        # --- Page 7: Block Arranger ---
         self.arranger_panel = ArrangerPanel(self)
         self.arranger_panel.render_ready.connect(self._on_arrangement_rendered)
-        self.stack.addWidget(self.arranger_panel)  # Index 8
+        self.stack.addWidget(self.arranger_panel)  # Index 7
+        
+        # --- Page 8: Aoide (YuE2 Full Song) ---
+        self.aoide_panel = AoidePanel(self)
+        self.aoide_panel.play_audio.connect(self.handle_external_audio)
+        self.stack.addWidget(self.aoide_panel)  # Index 8
         
         # --- GLOBAL PLAYER PANEL (Bottom Dock) ---
         self.player_panel = PlayerPanel(self)
@@ -394,13 +395,6 @@ class MainWindow(QMainWindow):
         stems_btn.clicked.connect(self.show_stems_panel)
         layout.addWidget(stems_btn, 0, Qt.AlignmentFlag.AlignHCenter)
         
-        # Strudel Live Coding
-        strudel_btn = QPushButton()
-        strudel_btn.setText("🎹")  # Use emoji as icon fallback
-        strudel_btn.setStyleSheet("font-size: 18px; padding: 8px;")
-        strudel_btn.setToolTip("Strudel Live Coding")
-        strudel_btn.clicked.connect(self.show_strudel_panel)
-        layout.addWidget(strudel_btn, 0, Qt.AlignmentFlag.AlignHCenter)
         
         # Voice Lab
         voice_btn = QPushButton()
@@ -412,11 +406,27 @@ class MainWindow(QMainWindow):
         
         # Block Arranger
         arranger_btn = QPushButton()
-        arranger_btn.setText("🎤")
+        arranger_btn.setText("🧱")
         arranger_btn.setStyleSheet("font-size: 18px; padding: 8px;")
         arranger_btn.setToolTip("Block Arranger (Stack & Export)")
         arranger_btn.clicked.connect(self.show_arranger_panel)
         layout.addWidget(arranger_btn, 0, Qt.AlignmentFlag.AlignHCenter)
+        
+        # Aoide (YuE2 Full Song)
+        aoide_btn = QPushButton()
+        aoide_btn.setText("🎵")
+        aoide_btn.setStyleSheet("font-size: 18px; padding: 8px;")
+        aoide_btn.setToolTip("Aoide (YuE2 Full Song)")
+        aoide_btn.clicked.connect(self.show_aoide_panel)
+        layout.addWidget(aoide_btn, 0, Qt.AlignmentFlag.AlignHCenter)
+
+        # Transcription (NeuralNote / Audio-to-MIDI)
+        transcribe_btn = QPushButton()
+        transcribe_btn.setText("🎹")
+        transcribe_btn.setStyleSheet("font-size: 18px; padding: 8px;")
+        transcribe_btn.setToolTip("Audio-to-MIDI Transcription & Piano Roll")
+        transcribe_btn.clicked.connect(self.show_transcription_dialog)
+        layout.addWidget(transcribe_btn, 0, Qt.AlignmentFlag.AlignHCenter)
         
         layout.addStretch()
         
@@ -728,8 +738,8 @@ class MainWindow(QMainWindow):
         # Auto-save checkbox
         from PyQt6.QtWidgets import QCheckBox
         self.autosave_check = QCheckBox("Auto-save to outputs/")
-        self.autosave_check.setChecked(True)
         self.autosave_check.toggled.connect(lambda v: setattr(self, 'auto_save', v))
+        self.autosave_check.setChecked(self.auto_save)
         prompt_layout.addWidget(self.autosave_check)
         
         return prompt_group
@@ -782,7 +792,7 @@ class MainWindow(QMainWindow):
         self.model_combo.clear()
         
         # Filter models - only show downloaded ones in the main dropdown
-        from utils.cache import get_cached_models
+        from src.utils.cache import get_cached_models
         # Force refresh of cache list
         cached_list = get_cached_models()
         cached_ids = [m['name'] for m in cached_list]
@@ -1119,9 +1129,10 @@ class MainWindow(QMainWindow):
             self.status_bar.showMessage(f"Device detection failed: {e}")
             logger.error(f"Device detection failed: {e}")
             # Fallback to CPU
-            from device import DeviceInfo, DeviceType
+            from src.device import DeviceInfo, DeviceType
             self.device_info = DeviceInfo(DeviceType.CPU, "CPU (Fallback)", "cpu")
             self.loader = MusicGenLoader(self.device_info)
+            api_set_loader(self.loader)
             self.status_bar.showMessage("Ready (CPU Fallback). Select a model to begin.")
             
     def load_model(self):
@@ -1516,6 +1527,12 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'generate_btn'):
             self.generate_btn.setEnabled(True)
         
+        if audio is None:
+            logger.info("Generation completed or stopped without producing audio.")
+            if hasattr(self, 'status_bar'):
+                self.status_bar.showMessage("Generation stopped or produced no audio", 3000)
+            return
+
         self.current_audio = audio
         if self.loader:
             self.current_sample_rate = self.loader.sample_rate
@@ -1615,7 +1632,7 @@ class MainWindow(QMainWindow):
             audio = self.current_audio.copy()
             if reverb_wet > 0 or compression > 0 or bass_db != 0 or treble_db != 0:
                 try:
-                    from utils.effects import apply_effects_chain
+                    from src.utils.effects import apply_effects_chain
                     audio = apply_effects_chain(
                         audio,
                         self.loader.sample_rate,
@@ -1633,7 +1650,7 @@ class MainWindow(QMainWindow):
             
             # Normalize and save
             audio = normalize_audio(audio)
-            success = save_audio(
+            saved_path = save_audio(
                 audio,
                 filepath,
                 self.loader.sample_rate,
@@ -1641,8 +1658,8 @@ class MainWindow(QMainWindow):
                 bitrate
             )
             
-            if success:
-                self.status_bar.showMessage(f"Saved to: {filepath}")
+            if saved_path:
+                self.status_bar.showMessage(f"Saved to: {saved_path}")
             else:
                 QMessageBox.warning(self, "Error", "Failed to save audio file.")
     
@@ -1913,7 +1930,12 @@ class MainWindow(QMainWindow):
         layout.addWidget(title)
         
         # Version
-        version = QLabel("<p style='color: #a0a0b0;'>v0.9.0</p>")
+        try:
+            from src import __version__
+            version_str = f"v{__version__}"
+        except ImportError:
+            version_str = "v1.0.0"
+        version = QLabel(f"<p style='color: #a0a0b0;'>{version_str}</p>")
         version.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(version)
         
@@ -1963,12 +1985,20 @@ class MainWindow(QMainWindow):
         dialog.exec()
     
     def clear_melody(self):
-        """Clear the melody conditioning file."""
+        """Clear the melody conditioning file and imported audio."""
         self.melody_path = None
-        self.melody_label.setText("🎵 Drop audio file here for melody conditioning")
+        self.imported_audio = None
+        self.imported_audio_path = None
+        
+        self.melody_label.setText("Drop audio file here for melody conditioning")
         self.melody_label.setStyleSheet("color: #606070; border: none;")
+        if hasattr(self, 'imported_audio_label'):
+            self.imported_audio_label.setVisible(False)
+        if hasattr(self, 'use_as_seed_check'):
+            self.use_as_seed_check.setChecked(False)
+            self.use_as_seed_check.setEnabled(False)
         self.clear_melody_btn.setEnabled(False)
-        self.status_bar.showMessage("Melody cleared")
+        self.status_bar.showMessage("Cleared melody/imported audio", 3000)
     
     def set_melody_file(self, file_path: str):
         """Set a melody file for conditioning."""
@@ -2014,17 +2044,25 @@ class MainWindow(QMainWindow):
     def toggle_favorite(self):
         """Toggle favorite status for current audio."""
         if self.fav_btn.isChecked():
+            if self.current_audio is None:
+                self.fav_btn.setChecked(False)
+                self.status_bar.showMessage("No audio to add to favorites")
+                return
             self.fav_btn.setText("🌟")
             self.fav_btn.setToolTip("Remove from favorites")
             # Save to favorites folder
             fav_dir = self.outputs_dir / "favorites"
             fav_dir.mkdir(exist_ok=True)
-            if self.current_audio is not None:
-                from datetime import datetime
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                fav_path = fav_dir / f"fav_{timestamp}.wav"
-                save_audio(fav_path, self.current_audio, self.current_sr)
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            fav_path = fav_dir / f"fav_{timestamp}.wav"
+            if save_audio(self.current_audio, str(fav_path), self.current_sample_rate):
                 self.status_bar.showMessage(f"Added to favorites: {fav_path.name}")
+            else:
+                self.fav_btn.setChecked(False)
+                self.fav_btn.setText("⭐")
+                self.fav_btn.setToolTip("Add to favorites")
+                self.status_bar.showMessage("Failed to save favorite")
         else:
             self.fav_btn.setText("⭐")
             self.fav_btn.setToolTip("Add to favorites")
@@ -2268,7 +2306,7 @@ class MainWindow(QMainWindow):
         self.history_list.clear()
         self.status_bar.showMessage("History cleared.")
     
-    def show_stems_panel(self):
+    def show_stems_dialog(self):
         """Show the stems mixer panel in a dialog."""
         from PyQt6.QtWidgets import QDialog, QVBoxLayout
         
@@ -2307,7 +2345,7 @@ class MainWindow(QMainWindow):
     
     def save_project(self):
         """Save current session to a project file."""
-        from utils.project import create_project_data, save_project
+        from src.utils.project import create_project_data, save_project
         
         filepath, _ = QFileDialog.getSaveFileName(
             self,
@@ -2347,7 +2385,7 @@ class MainWindow(QMainWindow):
     
     def open_project(self):
         """Load a project file and restore session state."""
-        from utils.project import load_project
+        from src.utils.project import load_project
         
         filepath, _ = QFileDialog.getOpenFileName(
             self,
@@ -2454,22 +2492,83 @@ class MainWindow(QMainWindow):
         """Show the DiffRhythm panel."""
         self.stack.setCurrentIndex(5)
     
-    def show_strudel_panel(self):
-        """Show the Strudel Live Coding panel and push keyboard focus into it."""
-        self.stack.setCurrentIndex(6)
-        # Give Chromium keyboard focus after the stack switch animation settles
-        QTimer.singleShot(100, lambda: (
-            self.strudel_panel.web_view.setFocus(Qt.FocusReason.OtherFocusReason)
-            if self.strudel_panel.web_view else None
-        ))
-        
     def show_voice_panel(self):
         """Show the Voice Lab panel."""
-        self.stack.setCurrentIndex(7)
+        self.stack.setCurrentIndex(6)
     
     def show_arranger_panel(self):
         """Show the Block Arranger panel."""
+        self.stack.setCurrentIndex(7)
+    
+    def show_aoide_panel(self):
+        """Show the Aoide (YuE2) panel."""
         self.stack.setCurrentIndex(8)
+
+    def show_transcription_dialog(self):
+        """Open NeuralNote Transcription Dialog for current audio or selected file."""
+        import tempfile
+        import os
+        from src.utils.audio import save_audio
+        from src.utils.midi import transcribe_audio
+        from src.ui.panels.transcription_panel import TranscriptionDialog
+        from src.utils.config import get_config
+
+        audio_path = None
+        temp_path = None
+
+        if self.current_audio is not None:
+            reply = QMessageBox.question(
+                self,
+                "Transcribe Audio",
+                "Transcribe the currently active audio?\n\n(Click 'No' to pick an audio file from disk)",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Yes
+            )
+            if reply == QMessageBox.StandardButton.Cancel:
+                return
+            elif reply == QMessageBox.StandardButton.Yes:
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+                    temp_path = f.name
+                save_audio(self.current_audio, temp_path, self.current_sample_rate)
+                audio_path = temp_path
+
+        if audio_path is None:
+            file_path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Select Audio File to Transcribe",
+                "",
+                "Audio Files (*.wav *.mp3 *.flac *.ogg *.m4a);;All Files (*)"
+            )
+            if not file_path:
+                return
+            audio_path = file_path
+
+        self.status_bar.showMessage("🟡 Transcribing audio to MIDI...")
+        QApplication.processEvents()
+
+        try:
+            result = transcribe_audio(audio_path)
+            if result and result.notes:
+                self.status_bar.showMessage(f"🟢 Transcribed {len(result.notes)} notes ({result.duration:.1f}s)")
+                dlg = TranscriptionDialog(result, parent=self)
+                dlg.exec()
+            else:
+                engine = get_config("transcription_engine", "basic-pitch")
+                self.status_bar.showMessage("🔴 Transcription failed")
+                QMessageBox.warning(
+                    self,
+                    "Transcription Failed",
+                    f"Could not extract MIDI notes using engine '{engine}'.\nPlease check that the engine and its dependencies are installed."
+                )
+        except Exception as e:
+            logger.error(f"Error during audio transcription: {e}")
+            QMessageBox.critical(self, "Transcription Error", f"An error occurred during transcription:\n{e}")
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception as e:
+                    logger.debug(f"Failed to remove temp file {temp_path}: {e}")
     
     def _on_arrangement_rendered(self, path: str):
         """Called when a render completes; push audio to the global player."""
@@ -2483,7 +2582,7 @@ class MainWindow(QMainWindow):
     def toggle_recording(self):
         """Toggle microphone recording for melody input."""
         if not hasattr(self, 'recorder'):
-            from utils.recorder import AudioRecorder, RECORDING_AVAILABLE
+            from src.utils.recorder import AudioRecorder, RECORDING_AVAILABLE
             if not RECORDING_AVAILABLE:
                 QMessageBox.warning(self, "Error", "Recording not available. Install sounddevice.")
                 self.mic_btn.setChecked(False)
@@ -2519,7 +2618,7 @@ class MainWindow(QMainWindow):
     def update_memory_display(self):
         """Update memory status display in sidebar."""
         try:
-            from utils.performance import get_memory_stats, format_bytes
+            from src.utils.performance import get_memory_stats, format_bytes
             
             stats = get_memory_stats()
             
@@ -2548,7 +2647,7 @@ class MainWindow(QMainWindow):
     def update_resource_display(self):
         """Update resource usage in status bar."""
         try:
-            from utils.performance import get_memory_stats, format_bytes
+            from src.utils.performance import get_memory_stats, format_bytes
             
             stats = get_memory_stats()
             
@@ -2577,7 +2676,7 @@ class MainWindow(QMainWindow):
             return
         
         try:
-            from utils.audio import load_audio
+            from src.utils.audio import load_audio
             result = load_audio(file_path, target_sr=32000)
             
             if result is None:
@@ -2609,21 +2708,6 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Failed to import audio: {e}")
             logger.error(f"Audio import error: {e}")
-    
-    def clear_melody(self):
-        """Clear the melody conditioning file and imported audio."""
-        self.melody_path = None
-        self.imported_audio = None
-        self.imported_audio_path = None
-        
-        self.melody_label.setText("Drop audio file here for melody conditioning")
-        self.melody_label.setStyleSheet("color: #606070; border: none;")
-        self.imported_audio_label.setVisible(False)
-        self.use_as_seed_check.setChecked(False)
-        self.use_as_seed_check.setEnabled(False)
-        self.clear_melody_btn.setEnabled(False)
-        
-        self.status_bar.showMessage("Cleared melody/imported audio")
     
     def generate_variations(self):
         """Generate multiple variations of the current prompt."""
@@ -2693,7 +2777,7 @@ class MainWindow(QMainWindow):
             for i, audio in enumerate(all_audio):
                 filename = f"{timestamp}_{prompt}_var{i+1}.wav"
                 filepath = variations_dir / filename
-                save_audio(filepath, audio, self.loader.sample_rate)
+                save_audio(audio, str(filepath), self.loader.sample_rate)
             
             self.status_bar.showMessage(f"Saved {len(all_audio)} variations to outputs/variations/")
         

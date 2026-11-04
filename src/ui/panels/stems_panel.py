@@ -5,6 +5,7 @@ Multi-track stem generation panel for building tracks layer by layer.
 Each stem has its own prompt, generation, and mixing controls.
 """
 
+import logging
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, 
     QPushButton, QSlider, QGroupBox, QScrollArea, QFrame,
@@ -13,8 +14,10 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal, QThread
 import numpy as np
 from pathlib import Path
-from utils.stems import separate_file
-from utils.audio import load_audio
+from src.utils.stems import separate_file
+from src.utils.audio import load_audio
+
+logger = logging.getLogger(__name__)
 
 try:
     import pyqtgraph as pg
@@ -207,7 +210,7 @@ class StemTrack(QFrame):
         self.status_label.setText("🟡 Extracting MIDI...")
         
         # Save temp audio file
-        from utils.audio import save_audio
+        from src.utils.audio import save_audio
         import tempfile
         import os
         
@@ -216,21 +219,26 @@ class StemTrack(QFrame):
             
         save_audio(self.audio_data, temp_path, self.sample_rate)
         
-        # Extract MIDI
-        from utils.midi import audio_to_midi
-        res = audio_to_midi(temp_path, file_path)
+        # Extract MIDI using configured engine
+        from src.utils.midi import transcribe_audio
+        result = transcribe_audio(temp_path, file_path)
         
         try:
             os.remove(temp_path)
         except Exception as e:
             logger.debug(f"Failed to remove temporary file {temp_path}: {e}")
             
-        if res:
-            self.status_label.setText("🟢 MIDI Saved")
-            QMessageBox.information(self, "Success", f"MIDI exported to {file_path}")
+        if result and result.midi_bytes:
+            self.status_label.setText("🟢 MIDI Transcribed")
+            # Open NeuralNote native transcription view dialog
+            from src.ui.panels.transcription_panel import TranscriptionDialog
+            dlg = TranscriptionDialog(result, parent=self)
+            dlg.exec()
         else:
             self.status_label.setText("🔴 MIDI Failed")
-            QMessageBox.warning(self, "Failed", "Could not extract MIDI. Is basic-pitch installed?")
+            from src.utils.config import get_config
+            engine = get_config("transcription_engine", "basic-pitch")
+            QMessageBox.warning(self, "Transcription Failed", f"Could not extract MIDI using {engine}. Please check dependencies.")
         
     def set_audio(self, audio_data: np.ndarray, sample_rate: int):
         """Set the audio data for this stem."""
@@ -447,7 +455,7 @@ class StemsPanel(QWidget):
                 "WAV Files (*.wav);;MP3 Files (*.mp3)"
             )
             if file_path:
-                from utils.audio import save_audio
+                from src.utils.audio import save_audio
                 save_audio(mixed_audio, file_path, 32000) # Assuming 32kHz
                 QMessageBox.information(self, "Success", f"Mix saved to {file_path}")
         else:

@@ -1,0 +1,141 @@
+KRAFTBEAT / AUDIO - TOP-PAPER TAKEAWAYS, 3 AUG - 3 NOV 2026 (BATCH 3 OF THE THREE-MONTH REVIEW)
+Three papers worth your time for KraftBeat. Why these: the window turned music generation
+toward explicit, editable symbolic planning - which is exactly the interface a
+generation app needs - plus one small audio model that fits your hardware outright.
+
+====================================================================
+1. YuE2: Unifying Symbolic and Audio Music Generation at Frontier Quality
+arXiv:2609.33757 (27 Sep 2026), HKUST / M-A-P / Tokenwave / NYU / Stanford / MBZUAI / ACE Studio
+Code: https://github.com/multimodal-art-projection/YuE ; weights: https://huggingface.co/m-a-p/YuE2-3B
+Attention: 245 upvotes, #2 HF daily of 29 Sep
+Coverage: full HTML text read (abstract, architecture, training, editing/cover sections);
+evaluation tables read at claim level, not every number re-verified.
+
+WHAT IT IS
+One ~3.58B-parameter model that composes in symbols and performs in audio: an AR-NAR
+Mixture-of-Transformers first writes a readable ABC-notation score (melody, chords, key,
+meter, tempo, form), expands it into semantic music tokens, then realizes 48-kHz stereo
+audio by flow matching. Trained on ~346k hours of music, whole songs packed in a 24,576
+context. Two new tools supply supervision from raw recordings: MERT2 (music representation,
+new SOTA on 14 of 15 MARBLE metrics) and SheetSage2 (lead-sheet transcription, leads 12 of
+15 benchmark-metric pairs).
+
+WHAT IT ACTUALLY SHOWED (their numbers)
+- Same-checkpoint ablation: experts prefer symbolic planning over no planning, 49.3% vs
+  34.6% overall (rest ties) - the planning step itself is doing measurable work.
+- WildSongBench: 6.73 SongBench Global Avg, above all evaluated public baselines; best-of-8
+  reaches 6.96, highest mean observed among evaluated systems.
+- Expert listening: best-of-8 preferred over Suno v4.5; nearly balanced against Suno v5.
+- Same checkpoint does score editing (edits change targeted melody/harmony while largely
+  preserving the rest), zero-shot covers (beats both evaluated cover systems on all eight
+  work-identity retrieval measures across 948 unseen works), and agentic editing via an
+  external LLM rewriting the score.
+
+LIMITS
+- "Competitive with proprietary systems" is expert-preference based; it is not ahead of
+  Suno v5 overall.
+- Score adherence (does the audio follow the written notes exactly) is evaluated by
+  agreement measures, not guaranteed; their editing claim says "largely preserving".
+- Scale: 3.58B params, flow-matching decoder, trained on ~346k hours of music. I have not
+  verified what training or fine-tuning it would cost; inference on a 16 GB card is plausible
+  but not verified by me.
+
+WHAT IT MEANS FOR KRAFTBEAT (my judgment)
+- Your 18 Oct KraftBeat spec lists YuE2 integration (whether it is implemented yet, I have
+  not verified); this paper is the capability ground truth for that decision. The important fact for the app: the editable interface is the ABC
+  score, not the audio. KraftBeat's editing UX should be score-level (change chords/melody
+  in text, re-render) - that is what the same-checkpoint editing mode supports.
+- SheetSage2 is relevant to your audio-to-symbolic path, with a task caveat: it transcribes
+  recordings to LEAD SHEETS (melody + chord symbols), while NeuralNote does polyphonic
+  audio-to-MIDI transcription - overlapping but different outputs. It is not a drop-in
+  NeuralNote replacement; evaluate it where a lead-sheet/chord-level representation is what
+  KraftBeat actually needs, and keep NeuralNote for dense polyphonic MIDI.
+- MERT2 is a CANDIDATE embedding for similarity/retrieval over a sample library: 14-of-15
+  MARBLE metrics is a public-benchmark result, so measure it on your own library and
+  retrieval task before committing.
+
+====================================================================
+2. StepAudio 3 Music Technical Report
+arXiv:2609.16034 (11 Sep 2026), StepFun / CUHK / UCSD
+Attention: 107 upvotes, #6 HF daily of 16 Sep
+Coverage: full HTML text read (abstract, intro, system overview, ABC-CoT planning);
+evaluation tables read at claim level.
+
+WHAT IT IS
+A long-form music model with the same big idea as YuE2, arrived at independently: an MoE
+autoregressive model first writes an ABC-notation arrangement plan (ABC-CoT: chords, tempo,
+meter, key, bar structure, melody), then predicts music tokens conditioned on it; a
+flow-matching DiT renders 48-kHz audio. Their tokenizer finding: at 25 Hz, single-codebook
+VQ gives more stable long-range musical development than multi-codebook RVQ even though RVQ
+reconstructs better - "the representation that reconstructs best is not necessarily the one
+best suited to autoregressive generation". They use a 50-Hz 65,536-entry single codebook.
+Up to 5m30s songs; accompaniment from dry vocals; cover synthesis; DPO alignment.
+
+WHAT IT ACTUALLY SHOWED (their numbers)
+- Highest AudioBox Content Enjoyment / Content Usefulness / Production Quality and highest
+  MuQ-MuLan similarity among evaluated systems; competitive SongBench.
+- Preliminary Artificial Analysis Music Arena Vocals Elo 1105 - behind Suno V5.5 and Mureka,
+  ahead of Suno V5 and MiniMax.
+- They are explicit that note/chord-level adherence to the plan is an open empirical
+  question, separate from caption alignment.
+
+LIMITS
+- A technical report, not a controlled study: the ABC-CoT benefit is asserted with system
+  results, not isolated the way YuE2's same-checkpoint ablation isolates planning.
+- No public weights mentioned in what I read; treat as design evidence, not a component.
+
+WHAT IT MEANS FOR KRAFTBEAT (my judgment)
+- Two independent frontier-quality systems in one month (this and YuE2) made the same
+  design choice: a readable symbolic score as the planning interface. That is convergence
+  evidence for the design among open systems - a factual observation, not a forecast.
+- The tokenizer trade-off finding is the reusable lesson: when you pick representations for
+  KraftBeat's own pipeline (or evaluate YuE2 vs alternatives), generation stability and
+  reconstruction quality are different objectives; measure both.
+
+====================================================================
+3. TinyAudio: Compact and Efficient Text-to-Audio Generation for Low-Resource Deployment
+arXiv:2609.31525 (25 Sep 2026), Liu et al., SJTU X-LANCE
+Code: https://github.com/junxi25liu/TinyAudio
+Coverage: PDF downloaded and read (method, deployment section, results tables).
+
+WHAT IT IS
+An 87M-parameter text-to-audio model (35M flow-matching DiT + 32M text encoder + 20M VAE
+decoder), built for low-resource deployment. A MeanFlow variant (TinyAudio-MF) generates in
+one function evaluation.
+
+WHAT IT ACTUALLY SHOWED (PDF-verified, full model vs MF variant separated)
+- Footprint (both variants): 87M total params, 0.48 GB peak GPU memory - over 90% smaller
+  and over 8x less memory than every compared ~1B-param pipeline.
+- Full TinyAudio: RTF 0.078 on their GPU setting (single GPU, FP32, batch size 1; vs
+  0.257-4.173 for compared systems); AudioCaps FD 18.24, FAD 2.65 (vs best 14.06 / 2.07) -
+  competitive but not best quality.
+- TinyAudio-MF (MeanFlow one-step variant): RTF 0.010 on the same GPU setting, but quality
+  drops to FD 23.65 in their own table. On CPU (container cgroup-limited to a four-core
+  quota, FP32): steady-state RTF 0.715 for 10-second audio - faster than real time, but
+  that is the MF variant with the quality drop, not the full model.
+- Net: the full model is the quality/footprint story; MF is the speed story, and the two
+  claims do not come from the same checkpoint.
+
+LIMITS
+- Text-to-AUDIO (sound scenes/effects), not music. This does not generate songs.
+- CPU real-time claim rests on the one-step MF variant at reduced quality.
+
+WHAT IT MEANS FOR KRAFTBEAT (my judgment)
+- Not a music engine, but a candidate for a sound-design side feature (texture/foley/FX
+  generation for beats): the reported 0.48 GB peak GPU memory is on-paper compatible with
+  your 5060 Ti's VRAM - I have not verified it fits or runs on your machine, and their
+  four-core CPU-quota result comes from their cgroup-limited container, so it does not
+  establish performance on your CPU. If KraftBeat's scope is strictly music, skip it.
+- The MeanFlow one-step trick is worth knowing as a sampling-acceleration pattern.
+
+====================================================================
+NOT SELECTED (checked and passed over, with reasons)
+- VoxMem (multimodal memory benchmark for audio LMs, 26 Sep): an evaluation paper for audio
+  models, not a generation capability; held as a lead for a possible Dokime/audio-eval note.
+- AuK (open speech generation/editing model, 9 Sep) and the swarm of TTS papers
+  (CuteTTS, Phoenix TTS, VoiceChat-TTS): speech, not music; KraftBeat's MIDI/music scope
+  does not need them this batch. Flag if you want a speech/voice file later.
+- StepAudio 3 Realtime (12 Sep): realtime speech interaction, same reason.
+
+Sources: https://arxiv.org/abs/2609.33757 , https://arxiv.org/abs/2609.16034 ,
+https://arxiv.org/abs/2609.31525 , attention ranks https://paperpulse.ifsp.dev/month/2026-09

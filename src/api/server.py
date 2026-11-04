@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 import threading
 
 _state_lock = threading.Lock()
+_jobs: Dict[str, Dict[str, Any]] = {}
 _state: Dict[str, Any] = {
     "loader": None,          # MusicGenLoader instance (injected by MainWindow)
     "is_generating": False,
@@ -62,15 +63,31 @@ def create_app():
         logger.error("FastAPI not installed. Run: pip install fastapi uvicorn[standard]")
         return None
 
+    try:
+        from src import __version__
+        api_version = __version__
+    except ImportError:
+        api_version = "1.0.0"
+
     app = FastAPI(
         title="Kraftbeat API",
         description="Headless REST API for AI music generation. For DAW and script integration.",
-        version="1.0.0",
+        version=api_version,
     )
+
+    from src.utils.config import get_config
+
+    cors_origins = get_config("api_cors_origins", [
+        "http://localhost",
+        "http://127.0.0.1",
+        "http://localhost:8765",
+        "http://127.0.0.1:8765",
+    ])
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=cors_origins,
+        allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -87,8 +104,6 @@ def create_app():
         cfg_coef: float = 3.0
         seed: Optional[int] = None
 
-    from utils.config import get_config
-
     @app.get("/", tags=["Health"])
     def root():
         host = get_config("api_host", "localhost")
@@ -104,8 +119,8 @@ def create_app():
     def list_models():
         """List all available MusicGen models and their status."""
         try:
-            from models.musicgen import MUSICGEN_MODELS
-            from utils.cache import get_cached_models
+            from src.models.musicgen import MUSICGEN_MODELS
+            from src.utils.cache import get_cached_models
             cached = [m["name"] for m in get_cached_models()]
             return {
                 "models": [
@@ -134,7 +149,7 @@ def create_app():
                 )
 
             loader = _state.get("loader")
-            if not loader or not loader.model:
+            if not loader or not getattr(loader, "model", None):
                 raise HTTPException(
                     status_code=503,
                     detail="No model is loaded. Please load a model via the Kraftbeat UI first."
@@ -149,6 +164,16 @@ def create_app():
             _state["start_time"] = time.time()
             _state["stop_requested"] = False
 
+            _jobs[job_id] = {
+                "job_id": job_id,
+                "is_generating": True,
+                "status": "generating",
+                "progress": 0,
+                "elapsed_seconds": 0.0,
+                "output_path": None,
+                "start_time": _state["start_time"],
+            }
+
         background_tasks.add_task(_run_generation, req, job_id)
 
         return {
@@ -161,7 +186,25 @@ def create_app():
     def get_status(job_id: Optional[str] = None):
         """Poll the status of the current or specified generation job."""
         with _state_lock:
-            elapsed = round(time.time() - _state["start_time"], 1) if _state["start_time"] else 0
+            if job_id is not None:
+                if job_id == _state.get("current_job_id"):
+                    elapsed = round(time.time() - _state["start_time"], 1) if _state.get("start_time") else 0.0
+                    return {
+                        "job_id": _state["current_job_id"],
+                        "is_generating": _state["is_generating"],
+                        "status": _state["current_status"],
+                        "progress": _state["current_progress"],
+                        "elapsed_seconds": elapsed,
+                        "output_path": _state["last_output_path"],
+                    }
+                if job_id in _jobs:
+                    job_info = dict(_jobs[job_id])
+                    job_info.pop("start_time", None)
+                    return job_info
+                raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+            # Fallback to current job status if job_id is omitted
+            elapsed = round(time.time() - _state["start_time"], 1) if _state.get("start_time") else 0.0
             return {
                 "job_id": _state["current_job_id"],
                 "is_generating": _state["is_generating"],
@@ -179,6 +222,12 @@ def create_app():
                 return {"message": "No generation in progress."}
             _state["stop_requested"] = True
             _state["current_status"] = "stopping"
+            loader = _state.get("loader")
+            if loader and hasattr(loader, "stop"):
+                loader.stop()
+            curr_id = _state.get("current_job_id")
+            if curr_id and curr_id in _jobs:
+                _jobs[curr_id]["status"] = "stopping"
         return {"message": "Stop requested. Generation will halt at the next checkpoint."}
 
     @app.get("/outputs", tags=["Outputs"])
@@ -208,13 +257,47 @@ def _run_generation(req, job_id: str):
     import numpy as np
     from datetime import datetime
 
+    def _sync_job(status: Optional[str] = None, progress: Optional[int] = None, output_path: Optional[str] = None, is_generating: Optional[bool] = None):
+        with _state_lock:
+            if status is not None:
+                _state["current_status"] = status
+            if progress is not None:
+                _state["current_progress"] = progress
+            if output_path is not None:
+                _state["last_output_path"] = output_path
+            if is_generating is not None:
+                _state["is_generating"] = is_generating
+            
+            if job_id in _jobs:
+                st = _jobs[job_id].get("start_time", time.time())
+                _jobs[job_id]["elapsed_seconds"] = round(time.time() - st, 1)
+                if status is not None:
+                    _jobs[job_id]["status"] = status
+                if progress is not None:
+                    _jobs[job_id]["progress"] = progress
+                if output_path is not None:
+                    _jobs[job_id]["output_path"] = output_path
+                if is_generating is not None:
+                    _jobs[job_id]["is_generating"] = is_generating
+
     try:
         with _state_lock:
             loader = _state.get("loader")
-            if not loader or not loader.model:
-                _state["current_status"] = "error"
-                _state["is_generating"] = False
+            if not loader or not getattr(loader, "model", None):
+                _sync_job(status="error", is_generating=False)
                 return
+            if hasattr(loader, "reset_stop"):
+                loader.reset_stop()
+            elif hasattr(loader, "_stop_requested"):
+                loader._stop_requested = False
+
+        def progress_cb(current, total):
+            with _state_lock:
+                if _state.get("stop_requested"):
+                    return False
+                pct = int(min(90, max(10, (current / max(1, total)) * 80 + 10)))
+                _sync_job(progress=pct)
+            return True
 
         params = {
             "prompt": req.prompt,
@@ -223,29 +306,21 @@ def _run_generation(req, job_id: str):
             "top_k": req.top_k,
             "top_p": req.top_p,
             "cfg_coef": req.cfg_coef,
-            "infinite_mode": False,
-            "melody_audio": None,
-            "use_cache": True,
+            "progress_callback": progress_cb,
         }
 
         logger.info(f"[API] Starting generation job {job_id}: '{req.prompt[:50]}...'")
-        with _state_lock:
-            _state["current_progress"] = 10
+        _sync_job(progress=10)
 
         audio = loader.generate(**params)
 
         with _state_lock:
-            if _state["stop_requested"]:
-                _state["current_status"] = "stopped"
-                _state["is_generating"] = False
+            if _state.get("stop_requested"):
+                _sync_job(status="stopped", is_generating=False)
                 return
 
-            _state["current_progress"] = 90
-
         if audio is None:
-            with _state_lock:
-                _state["current_status"] = "error"
-                _state["is_generating"] = False
+            _sync_job(status="error", is_generating=False)
             return
 
         # Save output
@@ -265,21 +340,19 @@ def _run_generation(req, job_id: str):
             sr = getattr(loader, "sample_rate", 32000)
             sf.write(filepath, audio_to_save, sr)
             logger.info(f"[API] Job {job_id} complete → {filepath}")
-            with _state_lock:
-                _state["last_output_path"] = filepath
+            _sync_job(status="complete", progress=100, output_path=filepath, is_generating=False)
         except Exception as e:
             logger.error(f"[API] Failed to save output: {e}")
-
-        with _state_lock:
-            _state["current_progress"] = 100
-            _state["current_status"] = "complete"
+            _sync_job(status="error", is_generating=False)
+            return
 
     except Exception as e:
         logger.error(f"[API] Generation job {job_id} failed: {e}")
         import traceback
         traceback.print_exc()
-        with _state_lock:
-            _state["current_status"] = "error"
+        _sync_job(status="error", is_generating=False)
     finally:
         with _state_lock:
             _state["is_generating"] = False
+            if job_id in _jobs:
+                _jobs[job_id]["is_generating"] = False

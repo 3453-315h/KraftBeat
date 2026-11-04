@@ -129,6 +129,9 @@ Examples:
             duration=args.duration,
             temperature=args.temperature,
         )
+        if audio is None:
+            logger.error("❌ Audio generation failed (model returned None)")
+            sys.exit(1)
         logger.info(f"✅ Generated {args.duration}s of audio")
         
         # Apply effects if any
@@ -153,7 +156,7 @@ Examples:
         if output_path.suffix.lower()[1:] != args.format:
             output_path = output_path.with_suffix(f".{args.format}")
         
-        success = save_audio(
+        saved_path = save_audio(
             audio,
             str(output_path),
             loader.sample_rate,
@@ -161,8 +164,8 @@ Examples:
             args.bitrate
         )
         
-        if success:
-            logger.info(f"💾 Saved: {output_path}")
+        if saved_path:
+            logger.info(f"💾 Saved: {saved_path}")
             logger.info(f"🎉 Done!")
         else:
             logger.error(f"❌ Failed to save audio")

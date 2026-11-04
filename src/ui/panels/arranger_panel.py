@@ -139,23 +139,9 @@ class RenderWorker(QThread):
                 if result is None:
                     result = audio
                 else:
-                    # Apply crossfade between result tail and new block head
-                    if crossfade_samples > 0 and len(result) > crossfade_samples and len(audio) > crossfade_samples:
-                        fade_out = np.linspace(1.0, 0.0, crossfade_samples)
-                        fade_in  = np.linspace(0.0, 1.0, crossfade_samples)
-
-                        if result.ndim > 1:
-                            fade_out = fade_out[:, np.newaxis]
-                            fade_in  = fade_in[:, np.newaxis]
-
-                        # Overlap-add the crossfade zone
-                        result[-crossfade_samples:] = (
-                            result[-crossfade_samples:] * fade_out +
-                            audio[:crossfade_samples]  * fade_in
-                        )
-                        result = np.concatenate([result, audio[crossfade_samples:]])
-                    else:
-                        result = np.concatenate([result, audio])
+                    # Apply crossfade between result tail and new block head using equal-power curve
+                    from src.utils.audio import crossfade_audio
+                    result = crossfade_audio(result, audio, crossfade_samples, curve="equal_power")
 
                 self.progress.emit(50 + int(45 * (i + 1) / len(loaded)))
 
@@ -318,7 +304,7 @@ class ArrangerPanel(QWidget):
         settings_layout = QHBoxLayout(settings_group)
 
         settings_layout.addWidget(QLabel("Crossfade:"))
-        from utils.config import get_config
+        from src.utils.config import get_config
         max_crossfade = get_config("max_crossfade_ms", 5000)
         self.crossfade_spin = QSpinBox()
         self.crossfade_spin.setRange(0, max_crossfade)

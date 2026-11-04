@@ -87,7 +87,7 @@ class ConsoleWindow(QWidget):
         """Connect application logging and stdout/stderr to this console window."""
         try:
             # Import here to avoid circular dependencies if any
-            from ui.workers import QTextEditLogger
+            from src.ui.workers import QTextEditLogger
             
             # --- 1. Python Logging ---
             root_logger = logging.getLogger()

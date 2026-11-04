@@ -5,7 +5,7 @@ import os
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox,
     QPushButton, QLabel, QSpinBox, QComboBox, QCheckBox, QLineEdit,
-    QTabWidget, QMessageBox, QWidget as QWidgetBase, QFrame
+    QTabWidget, QMessageBox, QWidget as QWidgetBase, QFrame, QInputDialog
 )
 from PyQt6.QtCore import Qt
 
@@ -17,7 +17,7 @@ class SettingsPanel(QWidget):
     
     def __init__(self, parent=None, settings=None):
         super().__init__(parent)
-        from utils.config import ConfigManager
+        from src.utils.config import ConfigManager
         self.settings = settings or ConfigManager.instance().get_all()
         self.setup_ui()
         self.load_settings()
@@ -110,6 +110,33 @@ class SettingsPanel(QWidget):
         form2.addRow("", self.show_tooltips)
         
         layout.addWidget(ui_group)
+
+        # HuggingFace Credentials (Keyring-backed)
+        hf_group = QGroupBox("🔑 HuggingFace Credentials")
+        hf_layout = QVBoxLayout(hf_group)
+        
+        hf_info = QLabel(
+            "Required for downloading gated models (e.g. MuScriptor weights).<br>"
+            "Stored securely in the OS native keyring. Plaintext storage is explicitly refused."
+        )
+        hf_info.setWordWrap(True)
+        hf_layout.addWidget(hf_info)
+        
+        self.hf_status_label = QLabel()
+        hf_layout.addWidget(self.hf_status_label)
+        
+        hf_btn_layout = QHBoxLayout()
+        self.connect_hf_btn = QPushButton("🔑 Connect Token")
+        self.connect_hf_btn.clicked.connect(self.prompt_hf_token)
+        hf_btn_layout.addWidget(self.connect_hf_btn)
+        
+        self.delete_hf_btn = QPushButton("🗑️ Remove Token")
+        self.delete_hf_btn.clicked.connect(self.remove_hf_token)
+        hf_btn_layout.addWidget(self.delete_hf_btn)
+        
+        hf_layout.addLayout(hf_btn_layout)
+        layout.addWidget(hf_group)
+
         layout.addStretch()
         
         return widget
@@ -192,6 +219,43 @@ class SettingsPanel(QWidget):
         structure_layout.addWidget(phase_table)
         
         layout.addWidget(structure_group)
+        
+        # Audio-to-MIDI Transcription
+        trans_group = QGroupBox("🎹 Audio-to-MIDI Transcription (NeuralNote / MuScriptor)")
+        trans_form = QFormLayout(trans_group)
+        
+        self.transcription_engine = QComboBox()
+        self.transcription_engine.addItems(["basic-pitch", "muscriptor"])
+        trans_form.addRow("Default Engine:", self.transcription_engine)
+        
+        self.muscriptor_velocity = QSpinBox()
+        self.muscriptor_velocity.setRange(1, 127)
+        self.muscriptor_velocity.setValue(100)
+        self.muscriptor_velocity.setToolTip(
+            "MuScriptor does not recover dynamics; this constant velocity (default 100) is synthesized on export."
+        )
+        trans_form.addRow("Export Velocity (MuScriptor):", self.muscriptor_velocity)
+        
+        layout.addWidget(trans_group)
+
+        # Aoide (YuE2) Full-Song Generation
+        aoide_group = QGroupBox("🎵 Aoide (YuE2 Full Song)")
+        aoide_form = QFormLayout(aoide_group)
+
+        self.aoide_default_route = QComboBox()
+        self.aoide_default_route.addItems(["Official Package (Route 1)", "ComfyUI INT8 (Route 2)"])
+        aoide_form.addRow("Default Backend:", self.aoide_default_route)
+
+        self.aoide_comfyui_port = QSpinBox()
+        self.aoide_comfyui_port.setRange(1024, 65535)
+        self.aoide_comfyui_port.setValue(8188)
+        aoide_form.addRow("ComfyUI Server Port:", self.aoide_comfyui_port)
+
+        self.aoide_default_cot = QComboBox()
+        self.aoide_default_cot.addItems(["full", "melody", "off"])
+        aoide_form.addRow("Default CoT Plan:", self.aoide_default_cot)
+
+        layout.addWidget(aoide_group)
         layout.addStretch()
         
         return widget
@@ -894,7 +958,7 @@ class SettingsPanel(QWidget):
             from src import __version__
             version_str = f"v{__version__}"
         except ImportError:
-            version_str = "v0.1.0"
+            version_str = "v1.0.0"
             
         ver_label = QLabel(version_str)
         ver_label.setStyleSheet("color: #808090; font-size: 14px; margin-bottom: 20px;")
@@ -946,6 +1010,23 @@ class SettingsPanel(QWidget):
         structure_map = {'coherent': 0, 'balanced': 1, 'speed': 2}
         struct_idx = structure_map.get(self.settings.get('structure_mode', 'balanced'), 1)
         self.structure_mode.setCurrentIndex(struct_idx)
+
+        # Audio-to-MIDI Transcription
+        trans_idx = self.transcription_engine.findText(self.settings.get('transcription_engine', 'basic-pitch'))
+        if trans_idx >= 0:
+            self.transcription_engine.setCurrentIndex(trans_idx)
+        self.muscriptor_velocity.setValue(int(self.settings.get('muscriptor_export_velocity', 100)))
+
+        # Aoide (YuE2) Settings
+        aoide_route_idx = 1 if self.settings.get('aoide_default_route', 'package') == 'comfyui' else 0
+        self.aoide_default_route.setCurrentIndex(aoide_route_idx)
+        self.aoide_comfyui_port.setValue(int(self.settings.get('aoide_comfyui_port', 8188)))
+        cot_idx = self.aoide_default_cot.findText(self.settings.get('aoide_default_cot', 'full'))
+        if cot_idx >= 0:
+            self.aoide_default_cot.setCurrentIndex(cot_idx)
+
+        # Update HuggingFace credentials status
+        self.update_hf_status()
         
         # Quantization tab
         self.quant_mode.setCurrentIndex(self.settings.get('quant_mode', 2))
@@ -1010,6 +1091,13 @@ class SettingsPanel(QWidget):
             'default_model': self.default_model.currentText(),
             'default_format': self.default_format.currentText(),
             'default_bitrate': self.default_bitrate.currentText(),
+            # Audio-to-MIDI Transcription
+            'transcription_engine': self.transcription_engine.currentText(),
+            'muscriptor_export_velocity': self.muscriptor_velocity.value(),
+            # Aoide (YuE2) Settings
+            'aoide_default_route': 'comfyui' if self.aoide_default_route.currentIndex() == 1 else 'package',
+            'aoide_comfyui_port': self.aoide_comfyui_port.value(),
+            'aoide_default_cot': self.aoide_default_cot.currentText(),
             # Structure Mode (Fibonacci-based chunks)
             'structure_mode': ['coherent', 'balanced', 'speed'][self.structure_mode.currentIndex()],
             # Solutions - Quantization
@@ -1108,7 +1196,7 @@ class SettingsPanel(QWidget):
             
         # Save to centralized config
         try:
-            from utils.config import ConfigManager
+            from src.utils.config import ConfigManager
             ConfigManager.instance().update(self.settings)
         except Exception as e:
             logger.error(f"Failed to save settings: {e}")
@@ -1128,6 +1216,72 @@ class SettingsPanel(QWidget):
     def get_settings(self):
         """Return current settings."""
         return self.settings
+
+    def update_hf_status(self):
+        """Update HuggingFace keyring status display."""
+        try:
+            from src.utils.credentials import is_secure_keyring_available, get_hf_token
+            is_secure, msg = is_secure_keyring_available()
+            if not is_secure:
+                self.hf_status_label.setText(f"<span style='color: #ff6060;'>⚠️ {msg}</span>")
+                self.connect_hf_btn.setEnabled(False)
+                self.delete_hf_btn.setEnabled(False)
+                return
+
+            token = get_hf_token()
+            if token:
+                masked = token[:4] + "..." + token[-4:] if len(token) > 8 else "***"
+                self.hf_status_label.setText(f"<span style='color: #60ff60;'>✅ Token stored securely in OS keyring ({masked})</span>")
+                self.connect_hf_btn.setText("🔄 Update Token")
+                self.delete_hf_btn.setEnabled(True)
+            else:
+                self.hf_status_label.setText("<span style='color: #a0a0b0;'>No HuggingFace token stored.</span>")
+                self.connect_hf_btn.setText("🔑 Connect Token")
+                self.delete_hf_btn.setEnabled(False)
+        except Exception as e:
+            logger.debug(f"Failed to check HF keyring status: {e}")
+
+    def prompt_hf_token(self):
+        """Prompt user to store a HuggingFace token in the OS keyring."""
+        try:
+            from src.utils.credentials import store_hf_token
+            token, ok = QInputDialog.getText(
+                self,
+                "Connect HuggingFace",
+                "Enter your HuggingFace User Access Token (read access):\n"
+                "Will be stored securely in your OS keyring (never in plaintext).",
+                QLineEdit.EchoMode.Password,
+            )
+            if ok and token:
+                success, msg = store_hf_token(token)
+                if success:
+                    QMessageBox.information(self, "Token Saved", msg)
+                else:
+                    QMessageBox.warning(self, "Keyring Error", f"Failed to store token:\n{msg}")
+                self.update_hf_status()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Could not store token: {e}")
+
+    def remove_hf_token(self):
+        """Remove HuggingFace token from OS keyring."""
+        try:
+            from src.utils.credentials import delete_hf_token
+            confirm = QMessageBox.question(
+                self,
+                "Remove Token",
+                "Are you sure you want to remove the HuggingFace token from your OS keyring?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if confirm == QMessageBox.StandardButton.Yes:
+                success, msg = delete_hf_token()
+                if success:
+                    QMessageBox.information(self, "Token Removed", msg)
+                else:
+                    QMessageBox.warning(self, "Keyring Warning", msg)
+                self.update_hf_status()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Could not remove token: {e}")
+
 
 
 if __name__ == "__main__":

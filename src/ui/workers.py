@@ -14,7 +14,7 @@ from PyQt6.QtCore import QThread, pyqtSignal, QMetaObject, Qt, Q_ARG
 
 from pathlib import Path
 from src.models.musicgen import MusicGenLoader
-from utils.config import get_config
+from src.utils.config import get_config
 
 logger = logging.getLogger(__name__)
 
@@ -288,27 +288,8 @@ class GenerationWorker(QThread):
                     full_audio = chunk
                 else:
                     crossfade_samples = int(CROSSFADE_SECONDS * self.loader.sample_rate)
-                    
-                    if crossfade_samples > 0 and full_audio.shape[1] >= crossfade_samples and chunk.shape[1] >= crossfade_samples:
-                        fade_out = np.linspace(1.0, 0.0, crossfade_samples)
-                        fade_in = np.linspace(0.0, 1.0, crossfade_samples)
-                        
-                        if full_audio.ndim == 2:
-                            fade_out = fade_out[np.newaxis, :]
-                            fade_in = fade_in[np.newaxis, :]
-
-                        # Blend region
-                        end_prev = full_audio[:, -crossfade_samples:] * fade_out
-                        start_next = chunk[:, :crossfade_samples] * fade_in
-                        blended = end_prev + start_next
-                        
-                        full_audio = np.concatenate([
-                            full_audio[:, :-crossfade_samples],
-                            blended,
-                            chunk[:, crossfade_samples:]
-                        ], axis=1)
-                    else:
-                        full_audio = np.concatenate([full_audio, chunk], axis=1)
+                    from src.utils.audio import crossfade_audio
+                    full_audio = crossfade_audio(full_audio, chunk, crossfade_samples, curve="equal_power")
                 
                 # Progress update
                 progress_pct = int(((i + 1) / num_chunks) * 100)
@@ -418,137 +399,4 @@ class VariationWorker(QThread):
             
         except Exception as e:
             self.error.emit(str(e))
-
-
-class StrudelSampleDownloadWorker(QThread):
-    """Background worker for downloading Strudel sample packs."""
-    
-    finished = pyqtSignal(bool)  # success/failure
-    status = pyqtSignal(str)
-    progress = pyqtSignal(int)
-    
-    def __init__(self, pack_key: str, pack_info: dict, target_dir):
-        super().__init__()
-        self.pack_key = pack_key
-        self.pack_info = pack_info
-        self.target_dir = Path(target_dir) / pack_key
-    
-    def _log_status(self, message: str):
-        """Log status to both console and signal."""
-        logger.info(f"[Strudel Samples] {message}")
-        self.status.emit(message)
-    
-    def _remove_readonly(self, func, path, excinfo):
-        """Error handler for shutil.rmtree to handle read-only files on Windows."""
-        os.chmod(path, stat.S_IWRITE)
-        func(path)
-    
-    def run(self):
-        """Download sample pack from GitHub."""
-        
-        try:
-            repo = self.pack_info.get('repo', '')
-            branch = self.pack_info.get('branch', 'main')
-            display_name = self.pack_info.get('display_name', self.pack_key)
-            
-            self._log_status(f"📦 Starting download: {display_name}")
-            self._log_status(f"   Repository: github.com/{repo}")
-            
-            self.target_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Clone via git (shallow clone for speed)
-            repo_url = f"https://github.com/{repo}.git"
-            temp_dir = self.target_dir.parent / f"_temp_{self.pack_key}"
-            
-            # Remove temp dir if it exists (with Windows-safe cleanup)
-            if temp_dir.exists():
-                self._log_status(f"   Cleaning up previous temp files...")
-                try:
-                    shutil.rmtree(temp_dir, onerror=self._remove_readonly)
-                except Exception as e:
-                    self._log_status(f"   Warning: Could not clean temp dir: {e}")
-                    # Try again after a short wait
-                    time.sleep(1)
-                    try:
-                        shutil.rmtree(temp_dir, onerror=self._remove_readonly)
-                    except Exception as e:
-                        logger.debug(f"Retry cleanup failed: {e}")
-            
-            self._log_status(f"⬇️ Downloading from GitHub (this may take a while)...")
-            self.progress.emit(10)
-            
-            # Shallow clone with progress
-            result = subprocess.run(
-                ["git", "clone", "--depth", "1", "--branch", branch, "--progress", repo_url, str(temp_dir)],
-                capture_output=True,
-                text=True,
-                timeout=600  # 10 minute timeout
-            )
-            
-            if result.returncode != 0:
-                self._log_status(f"❌ Git clone failed: {result.stderr}")
-                self.finished.emit(False)
-                return
-            
-            self._log_status(f"✅ Clone complete, organizing samples...")
-            self.progress.emit(50)
-            
-            # Move samples to target (handle subpath if specified)
-            subpath = self.pack_info.get('subpath', '')
-            source_dir = temp_dir / subpath if subpath else temp_dir
-            
-            # Copy all audio files
-            audio_extensions = {'.wav', '.mp3', '.ogg', '.flac', '.aif', '.aiff'}
-            copied_count = 0
-            
-            # Count total files first
-            all_audio_files = [f for f in source_dir.rglob('*') 
-                              if f.is_file() and f.suffix.lower() in audio_extensions]
-            total_files = len(all_audio_files)
-            
-            self._log_status(f"   Found {total_files} audio files to copy...")
-            
-            for i, src_file in enumerate(all_audio_files):
-                # Preserve relative structure
-                rel_path = src_file.relative_to(source_dir)
-                dst_file = self.target_dir / rel_path
-                dst_file.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(src_file, dst_file)
-                copied_count += 1
-                
-                # Update progress every 50 files
-                if copied_count % 50 == 0:
-                    pct = 50 + int((copied_count / total_files) * 40)
-                    self.progress.emit(pct)
-                    self._log_status(f"   Copying: {copied_count}/{total_files} files...")
-            
-            # Also copy JSON files
-            for json_file in source_dir.glob('*.json'):
-                shutil.copy2(json_file, self.target_dir / json_file.name)
-            
-            self._log_status(f"🧹 Cleaning up temporary files...")
-            self.progress.emit(95)
-            
-            # Clean up temp dir (with Windows-safe cleanup)
-            try:
-                # First, remove .git folder which has locked files
-                git_dir = temp_dir / ".git"
-                if git_dir.exists():
-                    shutil.rmtree(git_dir, onerror=self._remove_readonly)
-                # Then remove the rest
-                shutil.rmtree(temp_dir, onerror=self._remove_readonly)
-            except Exception as e:
-                self._log_status(f"   Note: Temp cleanup had issues (safe to ignore): {e}")
-            
-            self._log_status(f"✅ Successfully downloaded {copied_count} samples for {display_name}!")
-            self.progress.emit(100)
-            self.finished.emit(True)
-            
-        except subprocess.TimeoutExpired:
-            self._log_status("❌ Download timed out (10 minutes)")
-            self.finished.emit(False)
-        except Exception as e:
-            logger.error(f"Sample download error: {e}")
-            self._log_status(f"❌ Error: {e}")
-            self.finished.emit(False)
 

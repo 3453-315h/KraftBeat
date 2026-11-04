@@ -42,7 +42,6 @@
   "clear_cache_between": false,
   "api_host": "127.0.0.1",
   "api_port": 8765,
-  "strudel_host": "127.0.0.1",
   "chunk_duration_coherent": 8.0,
   "chunk_duration_balanced": 13.0,
   "chunk_duration_speed": 21.0,
@@ -63,5 +62,7 @@
   "magic_token_calc": 640,
   "max_crossfade_ms": 5000,
   "waveform_point_limit": 5000,
-  "note_display_timing_ms": 3000
+  "note_display_timing_ms": 3000,
+  "transcription_engine": "basic-pitch",
+  "muscriptor_export_velocity": 100
 }

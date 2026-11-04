@@ -28,6 +28,7 @@ class DiffRhythmGenerationWorker(QThread):
     progress = pyqtSignal(int)
     error = pyqtSignal(str)
     status = pyqtSignal(str)
+    stopped = pyqtSignal()
     
     def __init__(self, loader, params: dict):
         super().__init__()
@@ -38,12 +39,14 @@ class DiffRhythmGenerationWorker(QThread):
         try:
             # Check for interruption before starting
             if self.isInterruptionRequested():
+                self.stopped.emit()
                 return
                 
             self.status.emit("Generating with DiffRhythm...")
             audio = self.loader.generate(**self.params)
             
             if self.isInterruptionRequested():
+                self.stopped.emit()
                 return
             
             if audio is not None:
@@ -413,7 +416,7 @@ class DiffRhythmPanel(QWidget):
         
     def _load_model_thread(self):
         try:
-            from models.diffrhythm import DiffRhythmLoader
+            from src.models.diffrhythm import DiffRhythmLoader
             self.loader = DiffRhythmLoader()
             self.loader.load()
         except Exception as e:
@@ -453,6 +456,7 @@ class DiffRhythmPanel(QWidget):
         self.worker = DiffRhythmGenerationWorker(self.loader, params)
         self.worker.finished.connect(self.on_generation_finished)
         self.worker.error.connect(self.on_generation_error)
+        self.worker.stopped.connect(self.on_generation_stopped)
         self.worker.status.connect(lambda s: self.status_label.setText(s))
         
         self.worker.start()
@@ -463,18 +467,22 @@ class DiffRhythmPanel(QWidget):
         self.progress_bar.setRange(0, 0)
 
     def stop_generation(self):
+        """Stop current generation gracefully without hard termination."""
         if self.worker and self.worker.isRunning():
-            self.status_label.setText("Stopping...")
-            self.worker.requestInterruption()
-            # Wait up to 2 seconds for graceful stop
-            if not self.worker.wait(2000):
-                # Force terminate if still running
-                self.worker.terminate()
-                self.worker.wait()
-            self.status_label.setText("Generation stopped.")
-            self.generate_btn.setEnabled(True)
+            self.status_label.setText("Stopping requested... waiting for model")
             self.stop_btn.setEnabled(False)
-            self.progress_bar.setVisible(False)
+            self.worker.requestInterruption()
+            if self.worker.wait(1000):
+                self.on_generation_stopped()
+            else:
+                self.status_label.setText("Stopping requested... waiting for current step to finish safely")
+
+    def on_generation_stopped(self):
+        """Reset UI after generation is stopped."""
+        self.status_label.setText("Generation stopped.")
+        self.generate_btn.setEnabled(True)
+        self.stop_btn.setEnabled(False)
+        self.progress_bar.setVisible(False)
 
     
     def on_generation_finished(self, audio):

@@ -1,0 +1,3 @@
+"""
+Kraftbeat test suite.
+"""

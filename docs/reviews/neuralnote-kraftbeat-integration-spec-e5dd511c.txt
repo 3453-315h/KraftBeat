@@ -1,0 +1,222 @@
+NEURALNOTE FOR KRAFTBEAT - REVIEW + INTEGRATION BUILD SPEC (final, supersedes all earlier versions)
+==================================================================================================
+Date: 2026-10-18, Johannesburg. Scope: NeuralNote/MuScriptor only (YuE handled separately). No code changed, no
+models run, no weights downloaded. Inspection method: source + documentation, plus direct inspection of the
+installed muscriptor 0.3.0 package source (PyPI wheel) to verify the API claims marked VERIFIED below.
+Accuracy/speed claims remain author-reported unless marked. Sources and revisions:
+  - NeuralNote  github.com/damrsn/neuralnote  main @ e6512e384f9f (2026-10-15), re-fetched via ls-remote 10-18
+  - KraftBeat   github.com/3453-315h/KraftBeat HEAD @ 26ae6b5ec404 (2026-06-24), re-fetched via ls-remote 10-18
+  - MuScriptor  PyPI muscriptor 0.3.0 wheel (published 2026-08-05), source inspected locally 2026-10-18;
+    github.com/muscriptor/muscriptor README fetched 2026-10-18; HF weight repos checked 2026-10-18.
+
+VERDICT
+-------
+NeuralNote's engine (MuScriptor) is a promising, recommended candidate to replace KraftBeat's basic-pitch MIDI -
+notably, NeuralNote v2 made that same swap itself. It is NOT yet a proven quality improvement for KraftBeat:
+that has to be established by the Phase 0 A/B measurements on your own generated stems below. For the look and
+feel you asked for, the proposed primary design is a native, integrated PyQt6 transcription view inside KraftBeat
+recreating NeuralNote's layout and workflow (design reference: attached NeuralNote_UI.png). Two alternatives are
+documented as optional fallbacks only; they are not part of the decision you need to make now.
+
+PART 1 - REVIEW FINDINGS
+------------------------
+1. WHAT "CURRENT MIDI" IN KRAFTBEAT IS
+   1.1 Audio-to-MIDI export (the target). src/utils/midi.py (71 lines): audio_to_midi() calls Spotify basic-pitch
+       predict_and_save, renames the *_basic_pitch.mid output. Called only from src/ui/panels/stems_panel.py
+       (StemCard, lines ~142-233): the "MIDI" button saves the stem's audio to a temp WAV, runs audio_to_midi,
+       reports in the status label. Optional dependency (requirements/base.txt:22); missing import fails soft.
+       Single clean swap seam.
+   1.2 MIDI input in Strudel (NOT a target). src/strudel/midi.py injects Web MIDI API JS for keyboard play of
+       live-coding patterns. Unrelated; leave alone.
+
+2. WHAT NEURALNOTE IS (v2, HEAD e6512e3)
+   2.1 Audio-to-MIDI app/plugin (VST3/AU/Standalone), C++23 + JUCE. v2 replaced Basic Pitch with MuScriptor
+       (Kyutai + Mirelo, arXiv 2607.08168). Scale: MuScriptor 103M-1.4B parameters vs Basic Pitch's <17K
+       parameters / <20MB peak memory (per Spotify, basicpitch.spotify.com/about).
+   2.2 Capabilities: multi-instrument transcription of full mixes, notes grouped per instrument; three model
+       sizes; built-in per-instrument synth with gain/mute/solo; pause/resume across sessions; drag-MIDI-out /
+       save .mid. Inputs wav/aiff/flac/mp3/ogg or live/DAW recording; engine takes 16 kHz mono float32
+       (Lib/Model/MuscriptorEngine.h, Lib/DSP/Resampler.cpp). Tempo detection; selectable export tempo.
+   2.3 Engine: separate repo muscriptor.cpp (C++/ggml), static lib (ThirdParty/muscriptor.cpp). GPU via Metal
+       (macOS) and Vulkan (Windows/Linux); CPU fallback. NeuralNote's models are f16 GGUF precision conversions
+       of the same MuScriptor weight family the Python package loads as fp32 safetensors
+       (huggingface.co/DamRsn/muscriptor-gguf v1/: small 209MB, medium 618MB, large 2.74GB; HF muscriptor-medium
+       safetensors = 1.23GB). Same family and sizes, NOT numerically verified equivalence: f16 vs fp32 precision
+       can produce different transcriptions. Disk size is a floor for runtime memory; neither project publishes
+       peak RAM/VRAM.
+   2.4 Speed: only published numbers are Apple M1 Pro real-time factors (author-reported): small ~3.5x GPU /
+       ~2x CPU; medium ~1.5x / ~0.7x; large ~0.5x GPU. Nothing for consumer NVIDIA/AMD - unknown on your
+       hardware until measured.
+   2.5 Limits: no CLI yet (roadmap); no Linux prebuilt binaries yet; per-instrument MIDI channel routing
+       roadmap-only (export today = one MIDI file / drag-out).
+
+3. THE MODEL WITHOUT THE APP: PYTHON `muscriptor` (v0.3.0, package source inspected)
+   3.1 Official package from the model's authors, PyTorch-based - KraftBeat already ships torch for
+       MusicGen/ACE-Step, so it lands in a familiar stack.
+   3.2 VERIFIED API (muscriptor/transcription_model.py, utils/midi.py, events.py in the 0.3.0 wheel):
+       - TranscriptionModel.load_model("small"|"medium"|"large"|local safetensors path|URL).
+       - model.transcribe(audio, ...) -> GENERATOR of NoteStartEvent / NoteEndEvent / ProgressEvent. Note events
+         carry pitch, start/end seconds, index matching, and a per-note instrument label. ProgressEvent reports
+         completed/total 5-second chunks. This is the progress path for UI.
+       - model.events_to_midi_bytes(events, beat_grid=None) -> bytes. VERIFIED public method, documented in
+         source as "Shared by transcribe_to_midi and the HTTP server, so the MIDI bytes are identical regardless
+         of how the events were obtained." It reassembles Notes from the event stream, applies the legacy
+         validate/trim cleanup, maps instrument labels to GM programs (drums on the drum program, others via the
+         MT3 group map), names tracks after instruments, and serializes via mido.
+       - model.transcribe_to_midi(audio, ...) = detect_beat_grid_for(audio) + transcribe() +
+         events_to_midi_bytes(). A UI wanting both progress and a file gets identical bytes by collecting the
+         transcribe() stream and calling events_to_midi_bytes itself.
+       - Tempo/timing mapping (VERIFIED, utils/midi.py + transcription_model.py): detect_beat_grid_for(audio,
+         mode="best-effort") uses beat-this; on failure it warns and falls back to a placeholder 120 BPM grid.
+         The grid's onset_delay shifts note times onto the real beat grid (this is the documented ~25 ms lag
+         correction); MIDI tempo is written as round(60,000,000 / bpm) microseconds-per-beat; time signature
+         comes from the grid when detected, omitted otherwise. Placeholder grid = 120 BPM, no time signature.
+       - Export velocity default (VERIFIED): notes_to_midi(velocity=100) - a constant MIDI velocity of 100 is
+         written because the model recovers no dynamics. It is a parameter, so the default is adjustable.
+       - Options: instruments=[...] decoding constraint, temperature sampling, beam search, GPU batching
+         (prelude_forcing rules), detect_tempo True/False/"best-effort". Audio input: file path or in-memory
+         (tensor, sample_rate). CLI mirrors the library.
+   3.3 Capability difference vs basic-pitch (engine-specific, not global): MuScriptor recovers no velocity and
+       no pitch bend; basic-pitch recovers both. MuScriptor exports therefore carry a synthesized constant
+       velocity (default 100, above). Any result model must treat velocity/bend as per-engine optional data.
+   3.4 Model download is gated: a free HuggingFace account and accepting the model's terms on the model page are
+       required once (hf auth login or HF_TOKEN), then weights auto-download and cache. Auth is needed only for
+       download/refresh - already-cached weights load offline with no token. basic-pitch needs no account.
+       Windows GPU needs the cu128 torch build per package docs (its default backend is CPU). DirectML -
+       KraftBeat's default AMD/Intel path - is unverified for this package; assume CPU until tested.
+   3.5 The package also ships a browser UI (`muscriptor serve`) with a live piano roll, soundfont playback and
+       an original/synthesized crossfade - evidence that the interaction model maps well onto this API.
+
+4. LOOK AND FEEL - WHAT TRANSFERS
+   NeuralNote's UI (attached NeuralNote_UI.png, from the repo at HEAD): near-black flat theme; top bar with
+   transport, time display, model picker, ORIG<->MIDI blend slider; left sidebar of color-coded per-instrument
+   strips (note count, pitch range, gain, mute/solo); main view = source waveform + playhead over a piano roll
+   with keyboard gutter, notes colored per instrument; status bar with instrument/note counts, model name, pitch
+   range, duration. The JUCE/C++ components behind it (PianoRoll.cpp, NnLook.cpp, InstrumentStrip.cpp) cannot be
+   reused inside a PyQt6 app directly - what carries over is the design, layout and interaction model, plus any
+   ideas worth reading from that code while reimplementing. KraftBeat's gap, from source: stems panel = buttons
+   + a small pyqtgraph waveform per stem; no piano roll, no MIDI playback (basic-pitch sonify disabled in
+   src/utils/midi.py), nothing per-instrument.
+   Visual baseline caveat: KraftBeat could not be run here (GUI + model deps), so no rendered screenshot of its
+   current UI exists in this review; the comparison is source-based on both sides plus NeuralNote's official
+   screenshot, not KraftBeat pixels.
+
+5. GAINS AND LOSSES vs BASIC-PITCH
+   Gains: multi-instrument separation with per-instrument grouping in one pass (basic-pitch: one undifferentiated
+       stream); author-reported state-of-the-art accuracy (not independently verified); tempo/time-signature
+       detection + quantization options; optional sheet-music export (MusicXML/PDF, needs MuseScore 4);
+       streaming progress events (current export is a blocking call with a spinner).
+   Losses/costs: no velocity, no pitch bend (constant-100 velocity export instead); 209MB-2.74GB model download
+       and multi-hundred-MB runtime footprint vs basic-pitch's <20MB; account-gated first download; speed on
+       your hardware unmeasured. Keep basic-pitch as a switchable fallback rather than deleting it.
+
+PART 2 - BUILD SPEC (proposal - nothing implemented)
+----------------------------------------------------
+PRIMARY DESIGN: native integrated PyQt6 transcription view + muscriptor engine, running in an isolated worker
+process, coordinated through KraftBeat's existing model management.
+
+PHASE 0 - GATES (measure before committing; all on your own generated stems, not paper test sets)
+  G1 Accuracy: transcribe the same 5-10 KraftBeat stems with basic-pitch and muscriptor small + medium; compare
+     by ear/score in a DAW. muscriptor becomes default only if clearly better on YOUR audio.
+  G2 Runtime: time muscriptor small/medium on your GPU and CPU; establishes whether DirectML works at all.
+  G3 Memory: log peak RAM/VRAM at small and medium against KraftBeat's low-VRAM targets.
+  G4 Download flow: verify the gated HF download works non-interactively (token present) from a clean machine,
+     and that cached weights then load with the token absent (offline).
+
+PHASE 1 - ENGINE LAYER (UI unchanged except progress)
+  - TranscriptionResult model (new): per-note onset/offset/pitch/instrument; tempo + time-signature (or
+    placeholder-grid flag); duration; source audio path; engine id + model size; and per-engine OPTIONAL
+    capability fields for velocity and pitch bend - populated for basic-pitch, explicitly None for muscriptor,
+    so the UI never treats them as universally absent or universally present.
+  - New src/utils/midi_muscriptor.py: adapter driving the VERIFIED path - detect_beat_grid_for(audio) +
+    transcribe() stream (progress + instrument labels) + events_to_midi_bytes(collected events, beat_grid) -
+    producing a TranscriptionResult and a byte-identical .mid. Export defaults: model-detected tempo/time
+    signature when available, placeholder 120 BPM grid flagged as such; constant velocity 100 labeled as a
+    synthesized export default (configurable in Settings), never presented as recovered dynamics.
+  - Compatibility wrapper keeps audio_to_midi(audio_path, output_path) for current callers, delegating to the
+    adapter; the rich result is what Phase 2 consumes.
+  - src/utils/midi.py dispatcher on an explicit settings value ("muscriptor" | "basic-pitch"); selected engine
+    recorded in the result and shown in the UI. NO silent fallback: selected-engine failure errors clearly,
+    never quietly returns the other engine's output.
+  - Worker: MANDATORY isolated process (not just a QThread) with its OWN virtualenv/requirements - muscriptor
+    and its torch build (cu128-for-Windows-GPU per its docs) live in the worker's requirements only, never in
+    KraftBeat's main requirements, so the MIDI feature cannot break the existing DirectML/CUDA generation
+    backends. GUI talks to the worker over a small local IPC (commands: load/unload/transcribe/cancel; events:
+    progress/result/error). Lifecycle: explicit load/unload, cancel between 5-second chunks, error surfacing,
+    retry without re-downloading weights. stems_panel.py swaps its blocking call for this worker with a real
+    progress bar from ProgressEvent.
+  - VRAM coordination: worker model load/unload goes through KraftBeat's ModelManager (src/utils/
+    model_manager.py) as a leased resource, so the transcription model never loads concurrently with a
+    generation model (MusicGen/ACE-Step/DiffRhythm - or the YuE integration being specified separately) unless
+    an explicit, measured multi-model plan says they fit. Default policy: one heavy model resident at a time;
+    transcribe requests wait for or trigger unload of the current resident, same as generation switches.
+  - Credentials (GUI side only): HF token stored exclusively via the OS keyring (keyring package); never in
+    QSettings, plaintext config, logs, or chat. FAIL CLOSED: if the keyring backend resolves to a plaintext
+    fallback store, the connect flow refuses and reports that no secure credential store is available - it must
+    not silently write the token to an unencrypted file. The Settings dialog gets a "Connect HuggingFace" action
+    that runs the keyring-backed flow and passes the token to the worker only as a transient environment
+    variable at spawn. The worker must never run `hf auth login` or otherwise persist the token into HF's
+    plaintext token cache (~/.cache/huggingface/token); downloads use the transient token and inference then
+    runs offline from the weight cache. Token is needed only for download/refresh; cached weights must load
+    offline without it. Missing token + missing weights = clear disabled state, not a crash.
+  - requirements: main requirements gain only `keyring`; a separate worker requirements file carries muscriptor
+    (pulls torch, mido, soundfile, beat-this) with the per-platform torch-build note; basic-pitch stays optional
+    in main requirements.
+
+PHASE 2 - NATIVE TRANSCRIPTION VIEW (the look and feel)
+  Layout per attached NeuralNote_UI.png, rebuilt as PyQt6 components:
+    - Piano-roll widget (custom QWidget paint or pyqtgraph): keyboard gutter, per-instrument colored notes,
+      playhead, time ruler; data from TranscriptionResult.
+    - Instrument sidebar strips: color chip, name, note count, pitch range, gain slider, mute/solo - one per
+      instrument label in the result.
+    - Audition: SoundFont playback of the MIDI (fluidsynth via mido/pretty_midi, or the package's --auralize
+      approach) with an ORIG<->MIDI blend slider mixing stem audio against synth output, playhead-synced to
+      waveform and piano roll.
+    - Waveform strip on top (pyqtgraph, as in stems_panel) sharing the playhead.
+    - Export: save .mid (tempo/time-signature mapping per Phase 1 defaults); drag-out to OS/DAW with the correct
+      MIDI MIME type; optional MusicXML/PDF via muscriptor sheets (requires MuseScore 4).
+    - Status bar: instrument/note counts, model size, pitch range, duration, engine label, placeholder-tempo
+      warning when the 120 BPM fallback was used.
+    - Theme: extend src/ui/themes.py dark theme.
+  Entry point: the stems panel "MIDI" button opens this view with the transcription loaded; one-click export
+  from inside.
+  Optional alternatives (not proposed; documented only): driving NeuralNote standalone as a companion app, or
+  embedding the muscriptor web UI (QWebEngineView + managed subprocess). Both add a second runtime and do not
+  reproduce NeuralNote's exact visual identity inside KraftBeat; consider only if the native view is rejected.
+
+ACCEPTANCE TESTS
+  - Engine: on fixed stems, assert per-note onset/offset/pitch/instrument within stated tolerances, detected
+    tempo (or placeholder-grid flag), and total duration. For muscriptor results, velocity/bend capability
+    fields asserted None and exported MIDI velocity asserted equal to the configured constant; for basic-pitch
+    results, velocity asserted present. Serialization parity: the SAME captured event sequence and beat grid fed through the
+    adapter's serialization and through events_to_midi_bytes must produce equal bytes (shared-helper test with
+    a fixed or mocked transcription - NOT two independent live transcriptions, whose stochastic decoding can
+    legitimately differ). Independent live reruns of the same audio are compared semantically under the declared
+    onset/offset/pitch/instrument tolerances, never by unconditional byte equality.
+  - Dispatcher: selected engine is the one that ran (engine label checked); selected-engine failure errors, no
+    cross-engine fallback.
+  - Worker: repeated sequential jobs, mid-job cancel (no partial .mid), error retry, load/unload freeing memory,
+    offline load from cache with token absent.
+  - Isolation: muscriptor and its torch absent from the main environment; KraftBeat's existing generation
+    backends still run (DirectML/CUDA smoke test); VRAM lease blocks concurrent heavy-model loads.
+  - UI: waveform/synth/piano-roll playhead sync within tolerance; exported .mid parses and matches the displayed
+    result; drag-out provides the MIDI MIME type; visual check via screenshots of the view against the
+    NeuralNote reference layout.
+  - Credentials: token present only in a secure keyring backend (plaintext-fallback backend = connect refused);
+    grep of config/logs and the HF token cache finds no token.
+
+EXPLICITLY OUT OF SCOPE
+  - Strudel Web MIDI input (unrelated, untouched).
+  - YuE/YuE2 integration (separate review/spec; only the shared VRAM-lease policy touches it).
+  - Adopting muscriptor as default before Phase 0 gates pass.
+
+OPEN FACTS (unresolved until measured)
+  - MuScriptor accuracy/runtime/memory on your hardware and your stems (Phase 0).
+  - DirectML compatibility of the muscriptor package.
+  - Peak RAM/VRAM per model size (unpublished by both projects).
+  - Numerical parity between f16 GGUF (NeuralNote) and fp32 safetensors (package) outputs - same weight family,
+    precision conversion not verified equivalent.
+  - KraftBeat current-UI visual baseline: no rendered screenshot available from this environment.
+
+ATTACHMENT: NeuralNote_UI.png - official UI screenshot from the NeuralNote repo (head e6512e3); the Phase 2
+design reference.

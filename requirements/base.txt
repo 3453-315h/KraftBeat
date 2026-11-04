@@ -11,9 +11,9 @@ soundfile
 numpy
 scipy
 PyQt6
-PyQt6-WebEngine
 sounddevice
 pyqtgraph
+pydub
 demucs
 psutil
 huggingface_hub
@@ -22,3 +22,4 @@ git+https://github.com/ace-step/ACE-Step.git
 basic-pitch
 fastapi
 uvicorn[standard]
+keyring
